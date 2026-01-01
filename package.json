@@ -36,7 +36,7 @@
     "homepage": "",
     "license": "MIT",
     "description": "An enhanced MCU development environment for 8051/AVR/STM8/Cortex-M/MIPS/RISC-V",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "preview": false,
     "engines": {
         "vscode": "^1.67.0"
