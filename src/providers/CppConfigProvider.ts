@@ -173,11 +173,14 @@ export class CppConfigProvider implements CustomConfigurationProvider {
             }
 
             if (proj) {
+                GlobalEvent.log_info(`[cpptools] Providing config for: ${uri.fsPath} (Project: ${proj.getUid()})`);
                 result = result.concat(await proj.provideConfigurations([uri], token));
+            } else {
+                GlobalEvent.log_warn(`[cpptools] Failed to find project for: ${uri.fsPath}`);
             }
         }
 
-        this.cppToolsOut.appendLine(`[source] provideConfigurations`);
+        this.cppToolsOut.appendLine(`[source] provideConfigurations request finished, found ${result.length} items`);
         this.cppToolsOut.appendLine(yml.stringify(result));
 
         return result;
@@ -196,6 +199,9 @@ export class CppConfigProvider implements CustomConfigurationProvider {
         let result: WorkspaceBrowseConfiguration | null = null;
         await this.dataProvider.traverseProjectsAsync(async (prj) => {
             result = await prj.provideFolderBrowseConfiguration(uri, token);
+            if (result !== null) {
+                GlobalEvent.log_info(`[cpptools] Found folder browse configuration for '${uri.fsPath}' in project ${prj.getUid()}`);
+            }
             return result !== null;
         });
         this.cppToolsOut.appendLine(`[folder] provideFolderBrowseConfiguration for '${uri.fsPath}'`);
@@ -240,7 +246,7 @@ export class CppConfigProvider implements CustomConfigurationProvider {
         prj.on('cppConfigChanged', () => {
 
             if (!SettingManager.instance().isEnableClangdConfigGenerator()) {
-                GlobalEvent.log_info(`ignore update .clangd, because "EIDE.Option.EnableClangdConfigGenerator" is not set`);
+                GlobalEvent.log_info(`[clangd] Config generator is disabled by user settings.`);
                 return;
             }
 
@@ -248,68 +254,155 @@ export class CppConfigProvider implements CustomConfigurationProvider {
             // setup clangd config
             // ----------------------
             try {
+                const projectUid = prj.getUid();
+                GlobalEvent.log_info(`[clangd] Updating .clangd for project: ${projectUid}`);
+
                 let cfg: any = {};
                 const fclangd = File.fromArray([prj.getProjectRoot().path, '.clangd']);
+
+                // Read existing config if it exists
                 if (fclangd.IsFile()) {
-                    cfg = yaml.parse(fclangd.Read());
+                    try {
+                        const content = fclangd.Read();
+                        cfg = yaml.parse(content) || {};
+                        GlobalEvent.log_info(`[clangd] Loaded existing .clangd configuration.`);
+                    } catch (e) {
+                        GlobalEvent.log_warn(`[clangd] Failed to parse existing .clangd: ${e}. Recreating.`);
+                        cfg = {};
+                    }
                 }
+
+                // Initialize basic structures
                 if (!cfg['CompileFlags']) cfg['CompileFlags'] = {};
                 if (!cfg['CompileFlags']['Add']) cfg['CompileFlags']['Add'] = [];
                 if (!cfg['CompileFlags']['Remove']) cfg['CompileFlags']['Remove'] = [];
-                //
+
+                // Indexer settings
+                if (!cfg['Index']) cfg['Index'] = {};
+                if (cfg['Index']['Background'] === undefined) cfg['Index']['Background'] = 'Build';
+
+                // Diagnostics settings
+                if (!cfg['Diagnostics']) cfg['Diagnostics'] = {};
+                if (cfg['Diagnostics']['UnusedIncludes'] === undefined) cfg['Diagnostics']['UnusedIncludes'] = 'Strict';
+                if (cfg['Diagnostics']['MissingIncludes'] === undefined) cfg['Diagnostics']['MissingIncludes'] = 'Strict';
+
+                // Inlay hints (very useful for embedded dev)
+                if (!cfg['InlayHints']) cfg['InlayHints'] = {};
+                if (cfg['InlayHints']['Enabled'] === undefined) cfg['InlayHints']['Enabled'] = true;
+                if (cfg['InlayHints']['ParameterNames'] === undefined) cfg['InlayHints']['ParameterNames'] = true;
+                if (cfg['InlayHints']['DeducedTypes'] === undefined) cfg['InlayHints']['DeducedTypes'] = true;
+
+                // Set compilation database path
                 cfg['CompileFlags']['CompilationDatabase'] = './' + File.ToUnixPath(prj.getOutputDir());
+
                 const toolchain = prj.getToolchain();
                 const gccLikePath = toolchain.getGccFamilyCompilerPathForCpptools('c');
+
                 if (gccLikePath) { // clangd 仅兼容gcc的编译器
+
+                    GlobalEvent.log_info(`[clangd] Toolchain: ${toolchain.name}, Compiler: ${gccLikePath}`);
+
                     cfg['CompileFlags']['Compiler'] = gccLikePath;
                     let clangdCompileFlags = <string[]>(cfg['CompileFlags']['Add']);
-                    const compilerArgs = prj.getCpptoolsConfig().cppCompilerArgs;
+                    const cpptoolsConfig = prj.getCpptoolsConfig();
+                    const compilerArgs = cpptoolsConfig.cppCompilerArgs || [];
+
+                    // 1. Handle system headers for GCC family
                     if (isGccFamilyToolchain(toolchain.name)) {
                         const tRoot = toolchain.getToolchainDir().path;
-                        clangdCompileFlags = clangdCompileFlags.filter(p => !File.isSubPathOf(tRoot, p.substr(2)));
-                        const li = getGccSystemSearchList(File.ToLocalPath(gccLikePath), ['-xc++'].concat(compilerArgs || []));
-                        if (li) {
-                            li.forEach(p => {
-                                clangdCompileFlags.push(`-I${File.normalize(p)}`);
+                        // Clean old toolchain-related includes if any
+                        clangdCompileFlags = clangdCompileFlags.filter(p => !File.isSubPathOf(tRoot, p.startsWith('-I') ? p.substring(2) : p));
+
+                        const sysHeaders = getGccSystemSearchList(File.ToLocalPath(gccLikePath), ['-xc++'].concat(compilerArgs));
+                        if (sysHeaders && sysHeaders.length > 0) {
+                            GlobalEvent.log_info(`[clangd] Found ${sysHeaders.length} system headers via compiler.`);
+                            sysHeaders.forEach(p => {
+                                const flag = `-I${File.normalize(p)}`;
+                                if (!clangdCompileFlags.includes(flag)) {
+                                    clangdCompileFlags.push(flag);
+                                }
                             });
                         }
                     } else if (toolchain.name == 'LLVM_ARM') {
-                        // nothing todo. This is llvm.
+                        GlobalEvent.log_info(`[clangd] Native LLVM support enabled.`);
                     } else {
-                        clangdCompileFlags.push(`-I${toolchain.getToolchainDir().path}/include`);
-                        clangdCompileFlags.push(`-I${toolchain.getToolchainDir().path}/include/libcxx`);
+                        // Fallback generic GCC-like layout
+                        const tPath = toolchain.getToolchainDir().path;
+                        clangdCompileFlags.push(`-I${tPath}/include`);
+                        clangdCompileFlags.push(`-I${tPath}/include/libcxx`);
                     }
-                    // // add flags
-                    // if (compilerArgs)
-                    //     compilerArgs.forEach(arg => clangdCompileFlags.push(arg));
-                    // // add user includes
-                    // prj.getCpptoolsConfig().includePath
-                    //     .forEach(path => clangdCompileFlags.push(`-I${path}`));
-                    // // add user defines
-                    // prj.getCpptoolsConfig().defines
-                    //     .forEach(d => clangdCompileFlags.push(`-D${d}`));
-                    // del repeat
+
+                    // 2. Add user includes from project (prioritize project includes)
+                    const userIncludes = cpptoolsConfig.includePath || [];
+                    userIncludes.forEach(path => {
+                        const flag = `-I${path}`;
+                        if (!clangdCompileFlags.includes(flag)) {
+                            clangdCompileFlags.push(flag);
+                        }
+                    });
+
+                    // 3. Add user defines
+                    const userDefines = cpptoolsConfig.defines || [];
+                    userDefines.forEach(def => {
+                        const flag = `-D${def}`;
+                        if (!clangdCompileFlags.includes(flag)) {
+                            clangdCompileFlags.push(flag);
+                        }
+                    });
+
+                    // 4. Add compiler specific arguments
+                    compilerArgs.forEach(arg => {
+                        if (!clangdCompileFlags.includes(arg)) {
+                            clangdCompileFlags.push(arg);
+                        }
+                    });
+
+                    // Deduplicate results
                     cfg['CompileFlags']['Add'] = ArrayDelRepetition(clangdCompileFlags);
+                    GlobalEvent.log_info(`[clangd] Configured with ${cfg['CompileFlags']['Add'].length} compiler flags.`);
                 }
-                // 其他不受 clangd 支持的编译器要自行设置 -I -D
+                // 其他不受 clangd 支持的编译器（如 AC5, SDCC）尝试提取头文件和定义进行软支持
                 else if (toolchain.name == 'AC5' || toolchain.name == 'SDCC' || toolchain.name == 'GNU_SDCC_MCS51') {
+
+                    GlobalEvent.log_info(`[clangd] Compatibility mode for ${toolchain.name}`);
+
                     const builderOpts = prj.getBuilderOptions();
                     const prjConfig = prj.GetConfiguration();
                     const compilerFlags: string[] = cfg['CompileFlags']['Add'] || [];
-                    toolchain.getSystemIncludeList(builderOpts)
-                        .forEach(p => compilerFlags.push(`-I"${p}"`));
-                    toolchain.getInternalDefines(<any>prjConfig.config.toolchainConfig, builderOpts)
-                        .forEach(d => compilerFlags.push(`-D"${d.name}=${d.value}"`));
+
+                    // Extract system includes
+                    toolchain.getSystemIncludeList(builderOpts).forEach(p => {
+                        const flag = `-I"${p}"`;
+                        if (!compilerFlags.includes(flag)) compilerFlags.push(flag);
+                    });
+
+                    // Extract internal defines
+                    toolchain.getInternalDefines(<any>prjConfig.config.toolchainConfig, builderOpts).forEach(d => {
+                        const flag = `-D"${d.name}=${d.value}"`;
+                        if (!compilerFlags.includes(flag)) compilerFlags.push(flag);
+                    });
+
                     cfg['CompileFlags']['Add'] = ArrayDelRepetition(compilerFlags);
-                    // 禁用所有诊断错误，因为 clangd 不支持这些编译器
-                    cfg['Diagnostics'] = { 'Suppress': '*' };
+
+                    // Disable diagnostics for these compilers as they may produce many false positives in clangd
+                    if (cfg['Diagnostics'].Suppress === undefined) {
+                        cfg['Diagnostics'].Suppress = ['*'];
+                    }
+                    GlobalEvent.log_info(`[clangd] Suppressed diagnostics for incompatible toolchain.`);
+                } else {
+                    GlobalEvent.log_warn(`[clangd] Unsupported toolchain '${toolchain.name}' for full clangd support.`);
                 }
+
+                // Write the result back to .clangd
                 fclangd.Write(yaml.stringify(cfg));
+                GlobalEvent.log_info(`[clangd] Configuration successfully written to .clangd file.`);
+
             } catch (error) {
-                GlobalEvent.log_error(error);
+                GlobalEvent.log_error(`[clangd] Exception while generating config: ${error}`);
             }
         });
 
         prj.forceUpdateCpptoolsConfig();
+        GlobalEvent.log_info(`[clangd] Provider listener registered for ${prj.getUid()}`);
     }
 }
