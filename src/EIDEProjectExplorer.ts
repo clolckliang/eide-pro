@@ -139,451 +139,25 @@ import * as iarParser from './IarProjectParser';
 import * as cmakeParser from './CmakeProjectParser';
 import * as ArmCpuUtils from './ArmCpuUtils';
 import { KeilImporter } from './importers/KeilImporter';
+import { EclipseImporter } from './importers/EclipseImporter';
+import { IarImporter } from './importers/IarImporter';
+import { CMakeImporter } from './importers/CMakeImporter';
+import { ProjectCreator } from './ProjectCreator';
+import { ProjectManager } from './ProjectManager';
 import { ShellFlasherIndexItem } from './WebInterface/WebInterface';
 import { jsonc } from 'jsonc';
 import { SimpleUIConfig, SimpleUIConfigData_input, SimpleUIConfigData_options, SimpleUIConfigData_text, SimpleUIConfigData_table, SimpleUIConfigData_boolean, SimpleUIConfigData_divider, SimpleUIConfigData_tag } from "./SimpleUIDef";
 import { StatusBarManager } from './StatusBarManager';
 import { doMigration, detectProject } from './EIDEProjectMigration';
-
-enum TreeItemType {
-    SOLUTION,
-    PROJECT,
-
-    PACK,
-    PACK_GROUP,
-    COMPONENT_GROUP,
-
-    DEPENDENCE,
-    DEPENDENCE_GROUP,
-    DEPENDENCE_SUB_GROUP,
-    DEPENDENCE_GROUP_ARRAY_FIELD,
-    DEPENDENCE_ITEM,
-
-    COMPILE_CONFIGURATION,
-    COMPILE_CONFIGURATION_ITEM,
-
-    UPLOAD_OPTION,
-    UPLOAD_OPTION_GROUP,
-    UPLOAD_OPTION_ITEM,
-
-    SETTINGS,
-    SETTINGS_ITEM,
-
-    //
-    // item must end with '_ITEM'
-    //
-
-    ITEM,
-    GROUP,
-
-    //
-    // clickable file item must end with '_FILE_ITEM'
-    //
-
-    // file system folder
-    FOLDER,
-    EXCFOLDER,
-    FOLDER_ROOT,
-    EXCFILE_ITEM,
-    FILE_ITEM,
-
-    // virtual folder
-    V_FOLDER,
-    V_EXCFOLDER,
-    V_FOLDER_ROOT,
-    V_EXCFILE_ITEM,
-    V_FILE_ITEM,
-
-    // source refs
-    SRCREF_FILE_ITEM,
-
-    // output 
-    OUTPUT_FOLDER,
-    OUTPUT_FILE_ITEM,
-
-    ACTIVED_ITEM,
-    ACTIVED_GROUP
-}
-
-function getTreeItemTypeName(typ: TreeItemType): string {
-    return TreeItemType[typ];
-}
-
-type GroupRegion = 'PACK' | 'Components' | 'ComponentItem';
-
-interface TreeItemValue {
-    label?: string;         // UI item label, if it's null, item label is '${keyAlias || key} : ${value}' or '${value}'
-    key?: string;           // key name will be show in label
-    keyAlias?: string;      // key's alias name will be show in label
-    value: string | File;   // if TreeItem refer to a file, the value type must be 'File'
-    isVirtualFile?: boolean;
-    contextVal?: string;
-    tooltip?: string | vscode.MarkdownString;
-    icon?: string;
-    obj?: any;
-    childKey?: string;
-    child?: string[];
-    projectIndex: number;
-    groupRegion?: GroupRegion;
-    collapsibleState?: vscode.TreeItemCollapsibleState;
-    otherCtx?: { [key: string]: string | boolean | number; };
-}
-
-type ModifiableDepType = 'INC_GROUP' | 'INC_ITEM'
-    | 'DEFINE_GROUP' | 'DEFINE_ITEM'
-    | 'LIB_GROUP' | 'LIB_ITEM'
-    | 'SOURCE_GROUP' | 'SOURCE_ITEM'
-    | 'None';
-
-class ModifiableDepInfo {
-
-    type: ModifiableDepType;
-
-    constructor(_type: ModifiableDepType, key?: string) {
-        this.type = _type;
-        if (key) {
-            switch (key) {
-                case 'incList':
-                    this.type = 'INC_GROUP';
-                    break;
-                case 'defineList':
-                    this.type = 'DEFINE_GROUP';
-                    break;
-                case 'libList':
-                    this.type = 'LIB_GROUP';
-                    break;
-                // case 'sourceList':
-                //     this.type = 'SOURCE_GROUP';
-                //     break;
-                default:
-                    this.type = 'None';
-                    break;
-            }
-        }
-    }
-
-    GetItemDepType(): ModifiableDepInfo {
-        switch (this.type) {
-            case 'INC_GROUP':
-                return new ModifiableDepInfo('INC_ITEM');
-            case 'DEFINE_GROUP':
-                return new ModifiableDepInfo('DEFINE_ITEM');
-            case 'LIB_GROUP':
-                return new ModifiableDepInfo('LIB_ITEM');
-            case 'SOURCE_GROUP':
-                return new ModifiableDepInfo('SOURCE_ITEM');
-            default:
-                return new ModifiableDepInfo('None');
-        }
-    }
-}
-
-export class ProjTreeItem extends vscode.TreeItem {
-
-    static ITEM_CLICK_EVENT = 'ProjectView.ItemClick';
-
-    static PROJ_ROOT_ITEM_TYPES = [
-        TreeItemType.PROJECT,
-        TreeItemType.PACK,
-        TreeItemType.COMPILE_CONFIGURATION,
-        TreeItemType.UPLOAD_OPTION,
-        TreeItemType.DEPENDENCE,
-        TreeItemType.SETTINGS,
-    ];
-
-    type: TreeItemType;
-    val: TreeItemValue;
-
-    constructor(type: TreeItemType, val: TreeItemValue, prjUid?: string) {
-
-        super('', vscode.TreeItemCollapsibleState.None);
-
-        if (val.value instanceof File) {
-            this.label = val.value.name;
-        } else {
-            const name = val.keyAlias || val.key;
-            this.label = name ? `${name} : ${val.value}` : val.value;
-        }
-
-        if (val.label) {
-            this.label = val.label;
-        }
-
-        // setup unique id
-        if (prjUid) {
-            // tree root's id is project uid
-            if (type == TreeItemType.SOLUTION) {
-                this.id = prjUid;
-            }
-            // tree sub item's id is their type
-            else if (ProjTreeItem.PROJ_ROOT_ITEM_TYPES.includes(type)) {
-                this.id = `${prjUid}:${TreeItemType[type]}`;
-            }
-        }
-
-        this.val = val;
-        this.type = type;
-
-        this.contextValue = this.GetContext();
-        this.tooltip = this.GetTooltip();
-
-        if (ProjTreeItem.isItem(type)) {
-            this.command = {
-                command: ProjTreeItem.ITEM_CLICK_EVENT,
-                title: ProjTreeItem.ITEM_CLICK_EVENT,
-                arguments: [this]
-            };
-        }
-
-        this.collapsibleState = val.collapsibleState || this.GetCollapsibleState(type);
-
-        this.InitIcon();
-    }
-
-    public static isItem(type: TreeItemType): boolean {
-        return TreeItemType[type].endsWith('ITEM');
-    }
-
-    public static isFileItem(type: TreeItemType): boolean {
-        return TreeItemType[type].endsWith('FILE_ITEM');
-    }
-
-    public static isVirtualFolderItem(type: TreeItemType): boolean {
-        return TreeItemType[type].startsWith('V_FOLDER');
-    }
-
-    private GetTooltip(): string | vscode.MarkdownString {
-
-        if (this.val.tooltip) {
-            return this.val.tooltip;
-        }
-
-        if (this.val.value instanceof File) {
-            return this.val.value.path;
-        } else if (ProjTreeItem.isItem(this.type)) {
-            return this.val.value;
-        }
-
-        return TreeItemType[this.type];
-    }
-
-    private GetContext(): string {
-
-        if (this.val.obj instanceof ModifiableDepInfo) {
-            return this.val.obj.type;
-        }
-
-        if (this.val.contextVal) {
-            return this.val.contextVal;
-        }
-
-        return TreeItemType[this.type];
-    }
-
-    private GetCollapsibleState(type: TreeItemType): vscode.TreeItemCollapsibleState {
-        if (ProjTreeItem.isItem(type)) {
-            return vscode.TreeItemCollapsibleState.None;
-        }
-        return vscode.TreeItemCollapsibleState.Collapsed;
-    }
-
-    private InitIcon() {
-
-        const iconName = this.val.icon ? this.val.icon : this.GetIconName();
-        if (iconName !== undefined) {
-
-            if (iconName instanceof vscode.ThemeIcon) {
-                this.iconPath = iconName;
-                return;
-            }
-
-            const iconFile = ResManager.GetInstance().GetIconByName(iconName);
-            if (iconFile !== undefined) {
-                this.iconPath = {
-                    light: iconFile.path,
-                    dark: iconFile.path
-                };
-            } else {
-                GlobalEvent.emit('msg', newMessage('Warning', 'Load Icon \'' + iconName + '\' Failed!'));
-            }
-        }
-    }
-
-    private getSourceFileIconName(fileName_: string, suffix_: string): string | vscode.ThemeIcon | undefined {
-
-        let name: string | vscode.ThemeIcon | undefined;
-
-        const fileName = fileName_.toLowerCase();
-        const suffix = suffix_.toLowerCase();
-
-        switch (suffix) {
-            case '.c':
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'file_type_c_configured.svg';
-                } else {
-                    name = 'file_type_c.svg';
-                }
-                break;
-            case '.h':
-                name = 'file_type_cheader.svg';
-                break;
-            case '.cpp':
-            case '.cc':
-            case '.cxx':
-            case '.c++':
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'file_type_cpp_configured.svg';
-                } else {
-                    name = 'file_type_cpp.svg';
-                }
-                break;
-            case '.hpp':
-            case '.hxx':
-            case '.inc':
-                name = 'file_type_cppheader.svg';
-                break;
-            case '.s':
-            case '.asm':
-            case '.a51':
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'AssemblerSourceFile_configured_16x.svg';
-                } else {
-                    name = 'AssemblerSourceFile_16x.svg';
-                }
-                break;
-            case '.lib':
-            case '.a':
-                name = 'Library_16x.svg';
-                break;
-            case '.o':
-            case '.obj':
-            case '.axf':
-            case '.elf':
-            case '.bin':
-            case '.out':
-            case '.sm8':
-                name = 'file_type_binary.svg';
-                break;
-            case '.map':
-                name = 'file_type_map.svg';
-                break;
-            // other suffix
-            default:
-                if (fileName.endsWith('.map.view')) {
-                    name = 'Report_16x.svg';
-                } else {
-                    name = vscode.ThemeIcon.File; //'document-light.svg';
-                }
-                break;
-        }
-
-        return name;
-    }
-
-    private GetIconName(): string | vscode.ThemeIcon | undefined {
-        let name: string | vscode.ThemeIcon | undefined;
-
-        switch (this.type) {
-            /* case TreeItemType.SRCREF_FILE_ITEM:
-                name = 'Reference_16x.svg';
-                break; */
-            case TreeItemType.EXCFILE_ITEM:
-            case TreeItemType.V_EXCFILE_ITEM:
-                name = 'FileExclude_16x.svg';
-                break;
-            case TreeItemType.EXCFOLDER:
-            case TreeItemType.V_EXCFOLDER:
-                name = 'FolderExclude_32x.svg';
-                break;
-            case TreeItemType.FOLDER:
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'folder_type_config.svg';
-                } else {
-                    name = 'Folder_32x.svg';
-                }
-                break;
-            case TreeItemType.FOLDER_ROOT:
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'FolderRoot_configured_32x.svg';
-                } else {
-                    name = 'FolderRoot_32x.svg';
-                }
-                break;
-            case TreeItemType.V_FOLDER:
-            case TreeItemType.V_FOLDER_ROOT:
-                if (this.val.otherCtx && this.val.otherCtx['hasExtraArgs']) {
-                    name = 'folder_type_config.svg';
-                } else {
-                    name = 'folder_virtual.svg';
-                }
-                break;
-            case TreeItemType.COMPONENT_GROUP:
-                name = 'Component_16x.svg';
-                break;
-            case TreeItemType.PACK_GROUP:
-                name = 'Cube_16x.svg';
-                break;
-            case TreeItemType.DEPENDENCE_SUB_GROUP:
-            case TreeItemType.GROUP:
-                name = 'CheckboxGroup_16x.svg';
-                break;
-            case TreeItemType.SOLUTION:
-                name = 'ApplicationClass_16x.svg';
-                break;
-            case TreeItemType.PROJECT:
-                name = 'Class_16x.svg';
-                break;
-            case TreeItemType.COMPILE_CONFIGURATION:
-                name = 'Builder_16x.svg';
-                break;
-            case TreeItemType.PACK: // only for cpu pakage, not cmsis package
-                name = 'CPU_16x.svg';
-                break;
-            case TreeItemType.UPLOAD_OPTION:
-                name = 'TransferDownload_16x.svg';
-                break;
-            case TreeItemType.DEPENDENCE_GROUP:
-                name = 'DependencyGraph_16x.svg';
-                break;
-            case TreeItemType.DEPENDENCE:
-                name = 'Property_16x.svg';
-                break;
-            case TreeItemType.SETTINGS:
-                name = 'Settings_16x.svg';
-                break;
-            case TreeItemType.SETTINGS_ITEM:
-                name = 'Property_16x.svg';
-                break;
-            case TreeItemType.DEPENDENCE_GROUP_ARRAY_FIELD:
-                name = 'KPI_16x.svg';
-                break;
-            case TreeItemType.ACTIVED_GROUP:
-                name = 'TestCoveredPassing_16x.svg';//'RecursivelyCheckAll_16x.svg';
-                break;
-            case TreeItemType.OUTPUT_FOLDER:
-                name = 'folder_type_binary.svg';
-                break;
-            default:
-                {
-                    // if it's a source file, get icon
-                    if (ProjTreeItem.isFileItem(this.type) && this.val.value instanceof File) {
-                        const file: File = this.val.value;
-                        // if file is existed, get icon by suffix
-                        if (file.IsFile()) {
-                            name = this.getSourceFileIconName(file.name, file.suffix);
-                        }
-                        // if file not existed, show warning icon
-                        else {
-                            name = 'StatusWarning_16x.svg';
-                        }
-                    }
-                }
-                break;
-        }
-
-        return name;
-    }
-}
+import {
+    TreeItemType,
+    ProjTreeItem,
+    TreeItemValue,
+    ModifiableDepInfo,
+    VirtualFolderInfo,
+    VirtualFileInfo,
+    getTreeItemTypeName
+} from './models/ProjectTreeItem';
 
 interface ItemCache {
     root: ProjTreeItem;
@@ -593,16 +167,6 @@ interface ItemCache {
 interface ItemClickInfo {
     name: string;
     time: number;
-}
-
-interface VirtualFolderInfo {
-    path: string;
-    vFolder: VirtualFolder;
-}
-
-interface VirtualFileInfo {
-    path: string;       // virtual path
-    vFile: VirtualFile; // virtual file info
 }
 
 class ProjectItemCache {
@@ -658,13 +222,7 @@ class ProjectItemCache {
 
 class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vscode.TreeDragAndDropController<ProjTreeItem> {
 
-    private static readonly recName = 'sln.record';
-    private static readonly RecMaxNum = 50;
-
     private event: events.EventEmitter;
-    private prjList: AbstractProject[] = [];
-    private slnRecord: string[] = [];
-    private recFile: File;
     private context: vscode.ExtensionContext;
     private activePrjPath: string | undefined;
 
@@ -674,6 +232,8 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
     onDidChangeTreeData?: vscode.Event<ProjTreeItem | null | undefined> | undefined;
     dataChangedEvent: vscode.EventEmitter<ProjTreeItem | undefined>;
 
+    private prjManager: ProjectManager;
+
     constructor(_context: vscode.ExtensionContext) {
 
         this.event = new events.EventEmitter();
@@ -681,14 +241,14 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
         this.dataChangedEvent = new vscode.EventEmitter<ProjTreeItem>();
         this.context.subscriptions.push(this.dataChangedEvent);
         this.onDidChangeTreeData = this.dataChangedEvent.event;
-        this.recFile = File.fromArray([ResManager.GetInstance().getEideHomeFolder().path, ProjectDataProvider.recName]);
-        this.loadRecord();
+
+        this.prjManager = ProjectManager.getInstance(_context);
+        this.prjManager.on('project_list_changed', () => this.UpdateView());
     }
 
     onDispose() {
-        this.SaveAll();
-        this.CloseAll();
-        this.saveRecord();
+        this.prjManager.SaveAll(true);
+        this.prjManager.CloseAll();
     }
 
     public on(event: 'rootItems_inited', listener: () => void): void;
@@ -839,60 +399,23 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
     }
 
     LoadWorkspaceProject(workspaceState: vscode.Memento) {
-
-        const workspaceManager = WorkspaceManager.getInstance();
-
-        // not a workspace, exit
-        if (workspaceManager.getWorkspaceRoot() === undefined) {
-            return;
-        }
-
-        const wsFolders = workspaceManager.getWorkspaceList();
-        const validList: File[] = [];
-
-        for (const wsDir of wsFolders) {
-            const wsList = wsDir.GetList([/.code-workspace$/i], File.EXCLUDE_ALL_FILTER);
-            if (wsList.length > 0) {
-                if (detectProject(wsDir)) {
-                    validList.push(wsList[0]);
-                }
-            }
-        }
-
-        /* init active project */
-        if (validList.length > 0) {
-            this.activePrjPath = validList[0].path;
-        }
-
-        /* if prj count > 1, this is a workspace project
-         * active workspace control btns
-         */
-        if (validList.length > 1) {
-            vscode.commands.executeCommand('setContext', 'cl.eide.isWorkspaceProject', true);
-        }
-
-        for (const wsFile of validList) {
-            this._OpenProject(wsFile.path, workspaceState);
-        }
+        this.prjManager.LoadWorkspaceProject(workspaceState);
     }
 
     GetProjectByIndex(index: number): AbstractProject {
-        return this.prjList[index];
+        return this.prjManager.getProjectByIndex(index) as AbstractProject;
     }
 
     getProjectByUid(uid: string): AbstractProject | undefined {
-        const idx = this.getIndexByProjectUid(uid);
-        if (idx != -1) {
-            return this.GetProjectByIndex(idx);
-        }
+        return this.prjManager.getProjects().find(prj => prj.getUid() === uid);
     }
 
     getIndexByProjectUid(uid: string): number {
-        return this.prjList.findIndex(prj => prj.getUid() == uid);
+        return this.prjManager.getProjects().findIndex(prj => prj.getUid() === uid);
     }
 
     getProjectCount(): number {
-        return this.prjList.length;
+        return this.prjManager.getProjectCount();
     }
 
     /**
@@ -900,8 +423,9 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
      * @note if callbk_func's return code == true, loop will be break
      */
     async traverseProjectsAsync(fn: (prj: AbstractProject, index: number) => Promise<boolean | undefined>) {
-        for (let index = 0; index < this.prjList.length; index++) {
-            const res = await fn(this.prjList[index], index);
+        const prjs = this.prjManager.getProjects();
+        for (let index = 0; index < prjs.length; index++) {
+            const res = await fn(prjs[index], index);
             if (res) { break; }
         }
     }
@@ -911,14 +435,15 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
      * @note if callbk_func's return code == true, loop will be break
      */
     traverseProjects(fn: (prj: AbstractProject, index: number) => boolean | undefined) {
-        for (let index = 0; index < this.prjList.length; index++) {
-            const res = fn(this.prjList[index], index);
+        const prjs = this.prjManager.getProjects();
+        for (let index = 0; index < prjs.length; index++) {
+            const res = fn(prjs[index], index);
             if (res) { break; }
         }
     }
 
     foreachProject(callbk: (val: AbstractProject, index: number) => void): void {
-        this.prjList.forEach(callbk);
+        this.prjManager.getProjects().forEach(callbk);
     }
 
     UpdateView(ele?: ProjTreeItem) {
@@ -998,13 +523,15 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
     getActiveProject(): AbstractProject | undefined {
 
-        if (this.prjList.length == 1) {
-            return this.prjList[0];
+        const prjList = this.prjManager.getProjects();
+
+        if (prjList.length == 1) {
+            return prjList[0];
         }
 
-        const index = this.prjList.findIndex((prj) => prj.getWsPath() == this.activePrjPath);
+        const index = prjList.findIndex((prj) => prj.getWsPath() == this.activePrjPath);
         if (index != -1) {
-            return this.prjList[index];
+            return prjList[index];
         }
     }
 
@@ -1030,7 +557,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
         if (element === undefined) {
 
-            this.prjList.forEach((project, projectIndex) => {
+            this.prjManager.getProjects().forEach((project, projectIndex) => {
 
                 // --- init root Treeitem
 
@@ -1043,7 +570,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                     value: project.getProjectName() + ' : ' + project.getProjectCurrentTargetName(),
                     projectIndex: projectIndex,
                     contextVal: isCmakeProject ? 'SOLUTION_CMAKE' : 'SOLUTION',
-                    icon: this.prjList.length > 1 ? (isActived ? 'active.svg' : 'idle.svg') : undefined,
+                    icon: this.prjManager.getProjectCount() > 1 ? (isActived ? 'active.svg' : 'idle.svg') : undefined,
                     tooltip: new vscode.MarkdownString([
                         `**Name:** \`${project.getProjectName()}\``,
                         `- **Uid:** \`${project.getUid()}\``,
@@ -1140,7 +667,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
         } else {
 
-            const project = this.prjList[element.val.projectIndex];
+            const project = this.GetProjectByIndex(element.val.projectIndex);
             const prjExtraArgs = project.getSourceExtraArgsCfg();
 
             switch (element.type) {
@@ -2196,96 +1723,16 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
         }
     }
 
-    private async _OpenProject(workspaceFilePath: string, workspaceState: vscode.Memento): Promise<AbstractProject | undefined> {
-
-        const wsFile: File = new File(workspaceFilePath);
-        if (!wsFile.IsFile()) {
-            GlobalEvent.emit('msg', {
-                type: 'Warning',
-                contentType: 'string',
-                content: invalid_project_path + wsFile.path
-            });
-            return undefined;
-        }
-
-        if (!detectProject(File.from(wsFile.dir))) {
-            GlobalEvent.emit('msg', newMessage('Warning', `File not existed, [path]: ${wsFile.dir}`));
-            return undefined;
-        }
-
-        try {
-            await doMigration(File.from(wsFile.dir));
-            const prj = AbstractProject.NewProject(workspaceState);
-            await prj.Load(wsFile);
-            this.registerProject(prj);
-            GlobalEvent.emit('project.opened', prj);
-            return prj;
-        } catch (err) {
-            GlobalEvent.emit('msg', newMessage('Warning', project_load_failed));
-            GlobalEvent.log_error(err);
-            GlobalEvent.emit('globalLog.show');
-            return undefined;
-        }
-    }
 
     setActiveProject(index: number) {
-        const prj = this.prjList[index];
-        const wsPath = prj.getWsPath();
-        if (this.activePrjPath !== wsPath) {
-            this.activePrjPath = wsPath;
-            this.UpdateView();
-            GlobalEvent.emit('project.activeStatusChanged', prj.getUid());
-        }
-    }
-
-    async OpenProject(workspaceFilePath: string, switchWorkspaceImmediately?: boolean): Promise<AbstractProject | undefined> {
-
-        const wsFolder = new File(NodePath.dirname(workspaceFilePath));
-
-        // check workspace
-        if (!detectProject(wsFolder)) { // not found project file, open workspace ?
-            const msg = `Not found eide project in this workspace !, Open this workspace directly ?`;
-            const selection = await vscode.window.showInformationMessage(msg, continue_text, cancel_text);
-            if (selection === continue_text) { WorkspaceManager.getInstance().openWorkspace(new File(workspaceFilePath)); }
-            return undefined;
-        }
-
-        const prj = await vscode.window.withProgress({
-            title: 'Open Project',
-            location: vscode.ProgressLocation.Notification,
-        }, (progress) => {
-            progress.report({ message: `${workspaceFilePath}` });
-            return this._OpenProject(workspaceFilePath, getGlobalState());
-        });
+        const prj = this.prjManager.getProjectByIndex(index);
         if (prj) {
-            this.SwitchProject(prj, switchWorkspaceImmediately);
-            return prj;
-        }
-
-        return undefined;
-    }
-
-    async CreateProject(option: CreateOptions): Promise<AbstractProject | undefined> {
-
-        // check folder
-        const dList = option.outDir.GetList(File.EXCLUDE_ALL_FILTER);
-        if (dList.findIndex((_folder) => { return _folder.name === option.name; }) !== -1) {
-            const item = await vscode.window.showWarningMessage(`${WARNING}: ${project_exist_txt}`, 'Yes', 'No');
-            if (item === undefined || item === 'No') {
-                return undefined;
+            const wsPath = prj.getWsPath();
+            if (this.activePrjPath !== wsPath) {
+                this.activePrjPath = wsPath;
+                this.UpdateView();
+                GlobalEvent.emit('project.activeStatusChanged', prj.getUid());
             }
-        }
-
-        try {
-            const prj = AbstractProject.NewProject(getGlobalState());
-            await prj.Create(option);
-            this.registerProject(prj);
-            this.SwitchProject(prj);
-            return prj;
-        } catch (err) {
-            GlobalEvent.emit('error', err);
-            GlobalEvent.emit('msg', newMessage('Warning', project_load_failed));
-            return undefined;
         }
     }
 
@@ -2307,933 +1754,81 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
         return result;
     }
 
-    ImportProject(option: ImportOptions) {
+    //---
 
-        const catchErr = (error: any) => {
-            const msg = `${view_str$operation$import_failed}: ${(<Error>error).message}`;
-            GlobalEvent.emit('msg', newMessage('Warning', msg));
-            GlobalEvent.emit('msg', ExceptionToMessage(error, 'Hidden'));
-        };
-
-        switch (option.type) {
-            case 'mdk':
-                this.ImportKeilProject(option).catch(err => catchErr(err));
-                break;
-            case 'eclipse':
-                this.ImportEclipseProject(option).catch(err => catchErr(err));
-                break;
-            case 'iar':
-                this.ImportIarProject(option).catch(err => catchErr(err));
-                break;
-            case 'cmake':
-                this.ImportCmakeProject(option).catch(err => catchErr(err));
-                break;
-            default:
-                break;
-        }
+    SaveAll() {
+        this.prjManager.SaveAll(true);
     }
 
-    private async ImportIarProject(option: ImportOptions) {
+    CloseAll() {
+        this.prjManager.CloseAll();
+    }
 
-        if (!ToolchainManager.getInstance().isToolchainPathReady('IAR_ARM')) {
-            const msg = `Your 'IAR_ARM' toolchain path is invalid, we suggest that you set it before start to import !`;
-            const ans = await vscode.window.showWarningMessage(msg, `Ok`, 'Skip');
-            if (ans != 'Skip') {
-                if (ans == 'Ok') { // jump to setup toolchain
-                    vscode.commands.executeCommand('eide.operation.install_toolchain');
-                }
-                return;
-            }
-        }
+    //---
 
-        const ewwInfo = await iarParser.parseIarWorkbench(
-            new File(option.projectFile.path), SettingManager.GetInstance().getIarForArmDir());
-        const ewwRoot = new File(option.projectFile.dir);
+    getRecords(): string[] {
+        return this.prjManager.getRecords();
+    }
 
-        let projectnum = 0;
-        for (const _ in ewwInfo.projects) projectnum++;
+    clearAllRecords() {
+        this.prjManager.clearAllRecords();
+    }
 
-        if (projectnum == 0)
-            throw new Error(`Not found any project in this IAR workbench ! [path]: ${option.projectFile.path}`);
+    removeRecord(record: string) {
+        this.prjManager.removeRecord(record);
+    }
 
-        const vscWorkspace = {
-            "folders": <any[]>[]
-        };
+    //---
 
-        const vscWorkspaceFile = File.fromArray([ewwRoot.path, `${ewwInfo.name}.code-workspace`]);
+    async SetDevice(index: number) {
 
-        const toolchainType: ToolchainName = 'IAR_ARM';
+        const prj = this.prjManager.getProjectByIndex(index);
+        if (!prj) return;
 
-        //
-        let project0workspacefile: File = <any>undefined;
-        for (const path_ in ewwInfo.projects) {
-
-            const iarproj = ewwInfo.projects[path_];
-            const iarPrjRoot = new File(NodePath.dirname(path_));
-
-            const needCreateNewDir = File.normalize(iarPrjRoot.path) == File.normalize(ewwRoot.path);
-            const basePrj = AbstractProject.NewProject(getGlobalState()).createBase({
-                name: iarproj.name,
-                projectName: iarproj.name,
-                type: 'ARM',
-                outDir: iarPrjRoot
-            }, needCreateNewDir);
-
-            const prjRoot = basePrj.rootFolder;
-
-            vscWorkspace.folders.push({
-                name: iarproj.name,
-                path: ewwRoot.ToRelativePath(prjRoot.path) || prjRoot.path
+        const packInfo = prj.GetPackManager().GetPack();
+        if (packInfo) {
+            const devList = prj.GetPackManager().GetDeviceList().map((dev) => {
+                return <vscode.QuickPickItem>{ label: dev.name, description: dev.core };
             });
-
-            if (!project0workspacefile)
-                project0workspacefile = basePrj.workspaceFile;
-
-            const eidePrjCfg = basePrj.prjConfig.config;
-            const eideFolder = File.fromArray([prjRoot.path, AbstractProject.EIDE_DIR]);
-
-            // export project env
-            {
-                const envFile = File.fromArray([eideFolder.path, 'env.ini']);
-                const envCont = [
-                    `###########################################################`,
-                    `#              project environment variables`,
-                    `###########################################################`,
-                    ``,
-                ];
-
-                iarproj.envs['PROJ_DIR'] = needCreateNewDir ? '..' : '.';
-
-                for (const key in iarproj.envs) {
-                    envCont.push(`${key} = ${iarproj.envs[key]}`);
-                }
-
-                envFile.Write(envCont.join(os.EOL));
+            const item = await vscode.window.showQuickPick(devList, {
+                placeHolder: 'Found ' + devList.length + ' devices, ' + set_device_hint,
+                canPickMany: false,
+                matchOnDescription: true
+            });
+            if (item) {
+                prj.GetPackManager().SetDeviceInfo(item.label, item.description);
             }
-
-            // file groups
-            eidePrjCfg.virtualFolder = iarproj.fileGroups;
-            eidePrjCfg.outDir = 'build';
-            basePrj.prjConfig.setToolchain(toolchainType);
-
-            // targets
-            let firstTargetName: string = '';
-            for (const tname in iarproj.targets) {
-
-                if (!firstTargetName)
-                    firstTargetName = tname;
-
-                const targetName = tname;
-                const iarTarget = iarproj.targets[tname];
-
-                const nEideTarget: ProjectTargetInfo = {
-                    excludeList: iarTarget.excludeList,
-                    toolchain: eidePrjCfg.toolchain,
-                    toolchainConfig: copyObject(eidePrjCfg.toolchainConfig),
-                    toolchainConfigMap: copyObject(eidePrjCfg.toolchainConfigMap),
-                    uploader: eidePrjCfg.uploader,
-                    uploadConfig: copyObject(eidePrjCfg.uploadConfig),
-                    uploadConfigMap: copyObject(eidePrjCfg.uploadConfigMap),
-                    cppPreprocessAttrs: {
-                        name: 'default',
-                        incList: [],
-                        defineList: [],
-                        libList: []
-                    },
-                    builderOptions: {},
-                };
-                eidePrjCfg.targets[targetName] = nEideTarget;
-
-                nEideTarget.cppPreprocessAttrs.defineList = toArray(iarTarget.settings['ICCARM.CCDefines']);
-                nEideTarget.cppPreprocessAttrs.incList = toArray(iarTarget.settings['ICCARM.CCIncludePath2']);
-
-                //
-                // compiler base config
-                //
-                const compilerMod = <ArmBaseCompileConfigModel>basePrj.prjConfig.toolchainConfigModel;
-                const compilerOpt = <ArmBaseCompileData>nEideTarget.toolchainConfig;
-
-                if (iarTarget.core) {
-                    const expname = iarTarget.core;
-                    const cpus = compilerMod.getValidCpus();
-                    const idx = cpus.findIndex(n => expname == n || expname.toLowerCase().startsWith(n.toLowerCase()));
-                    if (idx != -1) {
-                        compilerOpt.cpuType = cpus[idx];
-                    }
-                }
-
-                if (ArmCpuUtils.hasFpu(compilerOpt.cpuType)) {
-                    if (iarTarget.settings['General.FPU2'] != '0') {
-                        compilerOpt.floatingPointHardware =
-                            ArmCpuUtils.hasFpu(compilerOpt.cpuType, true) ? 'double' : 'single';
-                    }
-                }
-
-                compilerOpt.scatterFilePath = iarTarget.icfPath;
-
-                //
-                // builder options
-                //
-                const toolchain = ToolchainManager.getInstance().getToolchain(eidePrjCfg.type, eidePrjCfg.toolchain);
-                const builderConfig = toolchain.getDefaultConfig();
-
-                const iar2eideOptsMap = iarParser.IAR2EIDE_OPTS_MAP;
-
-                // set iar compiler options
-                for (const cfgGroupName in iar2eideOptsMap) {
-
-                    const optsGrp = iar2eideOptsMap[cfgGroupName];
-
-                    for (const iarsname in iar2eideOptsMap[cfgGroupName]) {
-
-                        if (typeof iarTarget.settings[iarsname] != 'string')
-                            continue;
-
-                        const iarOptVal = <string>iarTarget.settings[iarsname];
-
-                        for (const fieldname in optsGrp[iarsname]) {
-                            const eideOptVal = optsGrp[iarsname][fieldname][iarOptVal];
-                            if (eideOptVal) {
-                                (<any>builderConfig)[cfgGroupName][fieldname] = eideOptVal;
-                            }
-                        }
-                    }
-                }
-
-                // copy string options
-
-                const optToString = (obj: string | string[]): string => {
-                    if (isArray(obj)) {
-                        return obj[0];
-                    } else {
-                        return obj;
-                    }
-                };
-
-                // linker
-                {
-                    builderConfig.linker['LIB_FLAGS'] = toArray(iarTarget.settings['ILINK.IlinkAdditionalLibs']);
-
-                    if (iarTarget.settings['ILINK.IlinkOverrideProgramEntryLabel'] == '1') {
-                        builderConfig.linker['program-entry'] = optToString(iarTarget.settings['ILINK.IlinkProgramEntryLabel']);
-                    }
-
-                    builderConfig.linker['config-defines'] = toArray(iarTarget.settings['ILINK.IlinkConfigDefines']);
-
-                    const extraOpts: string[] = [];
-
-                    toArray(iarTarget.settings['ILINK.IlinkKeepSymbols'])
-                        .forEach(s => extraOpts.push(`--keep ${s}`));
-
-                    toArray(iarTarget.settings['ILINK.IlinkDefines'])
-                        .forEach(s => extraOpts.push(`--define_symbol ${s}`));
-
-                    if (iarTarget.settings['ILINK.IlinkUseExtraOptions'] == '1') {
-                        toArray(iarTarget.settings['ILINK.IlinkExtraOptions'])
-                            .forEach(opt => extraOpts.push(opt));
-                    }
-
-                    builderConfig.linker['misc-controls'] = extraOpts.join(' ');
-                }
-
-                // asm
-                {
-                    builderConfig["asm-compiler"]['defines'] = toArray(iarTarget.settings['AARM.ADefines']);
-
-                    if (iarTarget.settings['AARM.AExtraOptionsCheckV2'] == '1') {
-                        builderConfig["asm-compiler"]['misc-controls'] =
-                            toArray(iarTarget.settings['AARM.AExtraOptionsV2']);
-                    }
-                }
-
-                // cpp
-                {
-                    const extraOpts: string[] = [];
-
-                    toArray(iarTarget.settings['ICCARM.PreInclude'])
-                        .forEach(s => extraOpts.push(`--preinclude ${s}`));
-
-                    if (iarTarget.settings['ICCARM.IExtraOptionsCheck'] == '1') {
-                        toArray(iarTarget.settings['ICCARM.IExtraOptions'])
-                            .forEach(s => extraOpts.push(s));
-                    }
-
-                    builderConfig["c/cpp-compiler"]['misc-controls'] = extraOpts.join(' ');
-                }
-
-                // builder tasks
-                {
-                    if (iarTarget.builderActions.prebuild) {
-                        builderConfig.beforeBuildTasks?.push({
-                            name: 'iar prebuild',
-                            command: iarTarget.builderActions.prebuild,
-                            stopBuildAfterFailed: true,
-                        });
-                    }
-
-                    if (iarTarget.builderActions.postbuild) {
-                        builderConfig.afterBuildTasks?.push({
-                            name: 'iar postbuild',
-                            command: iarTarget.builderActions.postbuild
-                        });
-                    }
-                }
-
-                nEideTarget.builderOptions[toolchainType] = builderConfig;
-            }
-
-            // init current target
-
-            const tname = firstTargetName;
-            const curTarget: any = eidePrjCfg.targets[tname];
-            eidePrjCfg.mode = tname; // set current target name
-            for (const key in curTarget) {
-                if (key === 'cppPreprocessAttrs') {
-                    eidePrjCfg.dependenceList =
-                        [{ groupName: 'custom', depList: [curTarget[key]] }];
-                    continue;
-                }
-                if (!MAPPED_KEYS_IN_TARGET_INFO.includes(key))
-                    continue;
-                (<any>eidePrjCfg)[key] = curTarget[key];
-            }
-
-            // save all config
-
-            basePrj.prjConfig.Save();
-        }
-
-        // store vscode workspace
-        fs.writeFileSync(vscWorkspaceFile.path, JSON.stringify(vscWorkspace, undefined, 4));
-
-        // switch project
-        const selection = await vscode.window.showInformationMessage(
-            view_str$operation$import_done, continue_text, cancel_text);
-        if (selection === continue_text) {
-            WorkspaceManager.getInstance().openWorkspace(vscWorkspace.folders.length > 1
-                ? vscWorkspaceFile
-                : project0workspacefile);
         }
     }
 
-    private async ImportEclipseProject(option: ImportOptions) {
+    Close(index: number): string | undefined {
+        return this.prjManager.Close(index);
+    }
 
-        const ePrjInfo = await eclipseParser.parseEclipseProject(option.projectFile.path);
-        const ePrjRoot = new File(option.projectFile.dir);
+    private async SwitchProject(prj: AbstractProject, immediately?: boolean) {
+        this.prjManager.SwitchProject(prj, immediately);
+    }
 
-        let nPrjType: ProjectType = 'ANY-GCC';
-
-        switch (ePrjInfo.type) {
-            case 'arm':
-                nPrjType = 'ARM';
-                break;
-            case 'riscv':
-                nPrjType = 'RISC-V';
-                break;
-            case 'sdcc':
-                nPrjType = 'C51';
-            default:
-                break;
-        }
-
-        const basePrj = AbstractProject.NewProject(getGlobalState()).createBase({
-            name: ePrjInfo.name,
-            projectName: ePrjInfo.name,
-            type: nPrjType,
-            outDir: ePrjRoot
-        }, false);
-
-        const nPrjConfig = basePrj.prjConfig.config;
-        const eideFolder = File.fromArray([ePrjRoot.path, AbstractProject.EIDE_DIR]);
-
-        nPrjConfig.virtualFolder = ePrjInfo.virtualSource;
-        nPrjConfig.outDir = 'build';
-
-        if (ePrjInfo.sourceEntries.length > 0) {
-            nPrjConfig.srcDirs = ePrjInfo.sourceEntries;
-        } else {
-            nPrjConfig.srcDirs = File.NotMatchFilter(ePrjRoot.GetList(File.EXCLUDE_ALL_FILTER), File.EXCLUDE_ALL_FILTER,
-                [/^\./, /^(build|dist|out|bin|obj|exe|debug|release|log[s]?|ipch|docs|doc|img|image[s]?)$/i])
-                .map(d => ePrjRoot.ToRelativePath(d.path) || d.path);
-        }
-
-        // init source args
-        const srcOptsObj = <SourceFileOptions>{ version: EIDE_FILE_OPTION_VERSION, options: {} };
-        srcOptsObj.version = EIDE_FILE_OPTION_VERSION;
-
-        // init all target
-        for (const eTarget of ePrjInfo.targets) {
-
-            const nEideTarget: ProjectTargetInfo = {
-                excludeList: eTarget.excList,
-                toolchain: nPrjConfig.toolchain,
-                toolchainConfig: copyObject(nPrjConfig.toolchainConfig),
-                toolchainConfigMap: copyObject(nPrjConfig.toolchainConfigMap),
-                uploader: nPrjConfig.uploader,
-                uploadConfig: copyObject(nPrjConfig.uploadConfig),
-                uploadConfigMap: copyObject(nPrjConfig.uploadConfigMap),
-                builderOptions: {},
-                cppPreprocessAttrs: {
-                    name: 'default',
-                    incList: [],
-                    defineList: [],
-                    libList: []
-                }
-            };
-
-            nEideTarget.cppPreprocessAttrs.defineList = eTarget.builldArgs.cMacros;
-            nEideTarget.cppPreprocessAttrs.incList = eTarget.builldArgs.cIncDirs;
-            nEideTarget.cppPreprocessAttrs.libList = eTarget.builldArgs.linkerLibSearchDirs;
-
-            // for arm gcc toolchain
-            if (nEideTarget.toolchain == 'GCC') {
-
-                const guessArmCpuType = (archName?: string): string | undefined => {
-                    if (!archName)
-                        return undefined;
-                    // @note: this list is trimed, not full
-                    const armCpuTypeMap: any = {
-                        'cortex-m0plus': 'Cortex-M0+',
-                        'cortex-m0+': 'Cortex-M0+',
-                        'cortex-m23': 'Cortex-M23',
-                        'cortex-m33': 'Cortex-M33',
-                        'cortex-m35p': 'Cortex-M35P',
-                        'cortex-m55': 'Cortex-M55',
-                        'cortex-m85': 'Cortex-M85',
-                        'cortex-m0': 'Cortex-M0',
-                        'cortex-m3': 'Cortex-M3',
-                        'cortex-m4': 'Cortex-M4',
-                        'cortex-m7': 'Cortex-M7'
-                    };
-                    return armCpuTypeMap[archName.toLowerCase()];
-                };
-
-                const compilerOpt = <ArmBaseCompileData>nEideTarget.toolchainConfig;
-                compilerOpt.cpuType = guessArmCpuType(eTarget.archName) || 'Cortex-M3';
-                compilerOpt.floatingPointHardware = ArmCpuUtils.hasFpu(compilerOpt.cpuType) ? 'single' : 'none';
-                compilerOpt.useCustomScatterFile = true;
-                compilerOpt.scatterFilePath = eTarget.linkerScriptPath || '';
-            }
-            // for riscv gcc toolchain
-            else if (nEideTarget.toolchain == 'RISCV_GCC') {
-                const compilerOpt = <RiscvCompileData>nEideTarget.toolchainConfig;
-                compilerOpt.linkerScriptPath = eTarget.linkerScriptPath || '';
-            }
-            // for any gcc toolchain
-            else if (nEideTarget.toolchain == 'ANY_GCC') {
-                const compilerOpt = <AnyGccCompileData>nEideTarget.toolchainConfig;
-                compilerOpt.linkerScriptPath = eTarget.linkerScriptPath || '';
-            }
-
-            // init compiler args for target
-            {
-                const toolchain = ToolchainManager.getInstance().getToolchain(nPrjConfig.type, nPrjConfig.toolchain);
-                const toolchainDefConf = toolchain.getDefaultConfig();
-
-                // glob
-                toolchainDefConf.global['misc-control'] = eTarget.builldArgs.globalArgs.filter(a => a.trim() != '');
-
-                // asm
-                {
-                    let flags: string[] = [];
-                    const asmCfg = toolchainDefConf["asm-compiler"];
-
-                    if (asmCfg['ASM_FLAGS']) flags.push(asmCfg['ASM_FLAGS']);
-                    eTarget.builldArgs.sMacros.forEach(m => flags.push(`-D${m}`));
-                    eTarget.builldArgs.assemblerArgs.forEach(arg => flags.push(arg));
-
-                    flags = flags.filter(p => p.trim() != '');
-                    if (asmCfg['ASM_FLAGS'] != undefined) {
-                        asmCfg['ASM_FLAGS'] = flags.join(' ');
-                    } else {
-                        asmCfg['misc-control'] = flags.join(' ');
-                    }
-                }
-
-                // c
-                {
-                    let flags: string[] = [];
-                    let cxxFlags: string[] = [];
-                    const ccCfg = toolchainDefConf["c/cpp-compiler"];
-
-                    if (eTarget.builldArgs.optimization)
-                        ccCfg['optimization'] = eTarget.builldArgs.optimization;
-                    if (eTarget.builldArgs.cLanguageStd)
-                        ccCfg['language-c'] = eTarget.builldArgs.cLanguageStd;
-                    if (eTarget.builldArgs.cppLanguageStd)
-                        ccCfg['language-cpp'] = eTarget.builldArgs.cppLanguageStd;
-                    if (eTarget.builldArgs.signedChar)
-                        ccCfg['signed-char'] = true;
-
-                    if (ccCfg['C_FLAGS'])
-                        flags.push(ccCfg['C_FLAGS']);
-                    if (ccCfg['CXX_FLAGS'])
-                        cxxFlags.push(ccCfg['CXX_FLAGS']);
-
-                    eTarget.builldArgs.cCompilerArgs.forEach(arg => {
-                        flags.push(arg);
-                        //TODO not support C++ options now
-                        //cxxFlags.push(arg);
-                    });
-
-                    flags = flags.filter(p => p.trim() != '');
-                    cxxFlags = cxxFlags.filter(p => p.trim() != '');
-                    if (ccCfg['C_FLAGS'] != undefined) {
-                        ccCfg['C_FLAGS'] = flags.join(' ');
-                        ccCfg['CXX_FLAGS'] = cxxFlags.join(' ');
-                    } else {
-                        ccCfg['misc-control'] = flags.join(' ');
-                    }
-                }
-
-                // linker
-                {
-                    if (!toolchainDefConf.linker) toolchainDefConf.linker = {};
-                    const ldCfg = toolchainDefConf.linker;
-
-                    const flags: string[] = eTarget.builldArgs.linkerArgs.filter(a => a.trim() != '');
-                    if (ldCfg['LD_FLAGS'] != undefined) {
-                        ldCfg['LD_FLAGS'] = flags.join(' ');
-                        const libFlags = eTarget.builldArgs.linkerLibArgs.filter(a => a.trim() != '');
-                        if (ldCfg['LIB_FLAGS'] != undefined) {
-                            ldCfg['LIB_FLAGS'] = libFlags.join(' ');
-                        }
-                    } else {
-                        ldCfg['misc-control'] = flags.join(' ');
-                    }
-
-                    // setup link order
-                    if (eTarget.objsOrder.length) {
-                        const linkOrder: { pattern: string, order: number }[] = [];
-                        eTarget.objsOrder.forEach((e, idx) => {
-                            linkOrder.push({
-                                pattern: e,
-                                order: idx
-                            });
-                        });
-                        ldCfg['object-order'] = linkOrder;
-                    }
-                }
-
-                nEideTarget.builderOptions[toolchain.name] = toolchainDefConf;
-            }
-
-            // setup source options
-            if (eTarget.sourceArgs) {
-                srcOptsObj.options[eTarget.name] = { files: {} };
-                const srcOptions: any = srcOptsObj.options[eTarget.name].files;
-                const srcFilters = AbstractProject.getSourceFileFilter();
-                for (const fpath in eTarget.sourceArgs) {
-                    const flags: string[] = [];
-                    const sourceArgs = eTarget.sourceArgs[fpath];
-                    if (AbstractProject.asmfileFilter.test(fpath)) {
-                        sourceArgs.sIncDirs.forEach(arg => flags.push(`-I${arg}`));
-                        sourceArgs.sMacros.forEach(arg => flags.push(`-D${arg}`));
-                        sourceArgs.assemblerArgs.forEach(arg => flags.push(arg));
-                    } else {
-                        sourceArgs.cIncDirs.forEach(arg => flags.push(`-I${arg}`));
-                        sourceArgs.cMacros.forEach(arg => flags.push(`-D${arg}`));
-                        sourceArgs.cCompilerArgs.forEach(arg => flags.push(arg));
-                    }
-                    if (flags.length > 0) {
-                        if (srcFilters.some(r => r.test(fpath)))
-                            srcOptions[fpath] = ArrayDelRepetition(flags).join(' ');
-                        else
-                            srcOptions[fpath + '/*'] = ArrayDelRepetition(flags).join(' ');
-                    }
-                }
-            }
-
-            nPrjConfig.targets[eTarget.name] = nEideTarget;
-        }
-
-        // init current target
-        const curTarget: any = nPrjConfig.targets[ePrjInfo.targets[0].name];
-        nPrjConfig.mode = ePrjInfo.targets[0].name; // set current target name
-        for (const name in curTarget) {
-            if (name === 'cppPreprocessAttrs') {
-                nPrjConfig.dependenceList = [{
-                    groupName: 'custom', depList: [curTarget[name]]
-                }];
-                continue;
-            }
-            if (!MAPPED_KEYS_IN_TARGET_INFO.includes(name))
-                continue;
-            (<any>nPrjConfig)[name] = curTarget[name];
-        }
-
-        // save all config
-        basePrj.prjConfig.Save();
-        // save src options
-        const optFile = File.fromArray([basePrj.rootFolder.path, AbstractProject.EIDE_DIR, `files.options.yml`]);
-        optFile.Write(view_str$prompt$filesOptionsComment + yaml.stringify(srcOptsObj, { indent: 4, lineWidth: 1000 }));
-
-        // switch project
-        const selection = await vscode.window.showInformationMessage(
-            view_str$operation$import_done, continue_text, cancel_text);
-        if (selection === continue_text) {
-            WorkspaceManager.getInstance().openWorkspace(basePrj.workspaceFile);
+    async UninstallKeilPackage(item: ProjTreeItem) {
+        const prj = this.prjManager.getProjectByIndex(item.val.projectIndex);
+        if (prj && prj.GetPackManager().GetPack()) {
+            return prj.UninstallPack(<string>item.val.value);
         }
     }
 
-    private async ImportCmakeProject(option: ImportOptions) {
-
-        const setting = SettingManager.GetInstance();
-        const cmakeListsFile = option.projectFile; // Now expects CMakeLists.txt
-        const projectRoot = cmakeListsFile.dir;
-
-        // Get cmake settings
-        const cmakePath = setting.getCmakeExecutablePath();
-        const buildDirName = setting.getCmakeBuildDirectory();
-
-        const buildDir = File.fromArray([projectRoot, buildDirName]);
-        const compileCommandsFile = File.fromArray([buildDir.path, 'compile_commands.json']);
-
-        // Check if compile_commands.json exists, if not prompt to generate
-        if (!compileCommandsFile.IsFile()) {
-            const answer = await vscode.window.showWarningMessage(
-                view_str$operation$cmake_no_compile_commands,
-                txt_yes, txt_no
-            );
-            if (answer !== txt_yes) {
-                return; // User cancelled
-            }
-
-            // Run cmake to generate compile_commands.json
-
-            // try to clean build dir before generation
-            try {
-                const platform = require('./Platform');
-                if (buildDir.IsDir()) platform.DeleteAllChildren(buildDir.path);
-            } catch (error) {
-                // ignore
-            }
-
-            let genResult = await this.runCmakeGenerate(cmakePath, projectRoot, buildDir.path, undefined, true);
-
-            // handle mismatch
-            if (!genResult.success && genResult.isGeneratorMismatch) {
-                const msg = 'CMake generator mismatch detected. Do you want to clean the build directory and retry?';
-                const ans = await vscode.window.showWarningMessage(msg, 'Yes', 'No');
-                if (ans === 'Yes') {
-                    // clean
-                    try {
-                        const platform = require('./Platform');
-                        const cacheFile = File.fromArray([buildDir.path, 'CMakeCache.txt']);
-                        const cmakeFilesDir = File.fromArray([buildDir.path, 'CMakeFiles']);
-                        if (cacheFile.IsFile()) fs.unlinkSync(cacheFile.path);
-                        if (cmakeFilesDir.IsDir()) platform.DeleteAllChildren(cmakeFilesDir.path);
-                    } catch (error) {
-                        // ignore
-                    }
-                    // retry
-                    genResult = await this.runCmakeGenerate(cmakePath, projectRoot, buildDir.path);
-                }
-            }
-
-            if (!genResult.success) {
-                // handle no compiler found
-                if (genResult.logParts.some(line => line.includes('No CMAKE_C_COMPILER') || line.includes('CMAKE_C_COMPILER not set')) ||
-                    genResult.logParts.some(line => line.includes('No CMAKE_CXX_COMPILER') || line.includes('CMAKE_CXX_COMPILER not set'))) {
-                    GlobalEvent.emit('globalLog.append', '\n[EIDE] Detected missing compiler error. Attempting to find EIDE toolchains...\n');
-
-                    // Try to use EIDE configured toolchain ?
-                    const armGccDir = setting.getGCCDir();
-                    const riscvGccDir = setting.getRiscvToolFolder();
-
-                    const candidates: { name: string, dir: File, prefix: string }[] = [];
-                    if (armGccDir && armGccDir.IsDir()) candidates.push({ name: 'ARM GCC', dir: armGccDir, prefix: setting.getGCCPrefix() });
-                    if (riscvGccDir && riscvGccDir.IsDir()) candidates.push({ name: 'RISC-V GCC', dir: riscvGccDir, prefix: setting.getRiscvToolPrefix() });
-
-                    if (candidates.length > 0) {
-                        let selected: { name: string, dir: File, prefix: string } | undefined;
-
-                        if (candidates.length === 1) {
-                            const msg = `CMake cannot find the C/C++ compiler. Do you want to try generating with EIDE configured "${candidates[0].name}" ?`;
-                            const ans = await vscode.window.showWarningMessage(msg, 'Yes', 'No');
-                            if (ans === 'Yes') selected = candidates[0];
-                        } else {
-                            const msg = `CMake cannot find the C/C++ compiler. Select a EIDE configured toolchain to retry:`;
-                            const names = candidates.map(c => c.name);
-                            const ans = await vscode.window.showQuickPick(names, { placeHolder: msg });
-                            if (ans) selected = candidates.find(c => c.name === ans);
-                        }
-
-                        if (selected) {
-                            const platform = require('./Platform');
-                            const fs = require('fs');
-                            const path = require('path');
-
-                            const binDir = selected.dir.path;
-                            const prefix = selected.prefix;
-                            const exeSuffix = platform.exeSuffix();
-                            const gccName = `${prefix}gcc${exeSuffix}`;
-                            const gppName = `${prefix}g++${exeSuffix}`;
-
-                            // Recursive search function
-                            const findFileRecursively = (dir: string, filename: string, depth: number = 0): string | undefined => {
-                                if (depth > 4) return undefined; // Limit depth
-                                try {
-                                    const files = fs.readdirSync(dir);
-                                    for (const file of files) {
-                                        const fullPath = path.join(dir, file);
-                                        const stat = fs.statSync(fullPath);
-                                        if (stat.isDirectory()) {
-                                            const res = findFileRecursively(fullPath, filename, depth + 1);
-                                            if (res) return res;
-                                        } else if (file.toLowerCase() === filename.toLowerCase()) {
-                                            return fullPath;
-                                        }
-                                    }
-                                } catch (e) { /* ignore */ }
-                                return undefined;
-                            };
-
-                            let cCompiler = File.fromArray([binDir, gccName]).path;
-                            let cxxCompiler = File.fromArray([binDir, gppName]).path;
-
-                            // If not found directly, try recursive search
-                            if (!fs.existsSync(cCompiler)) {
-                                const foundGcc = findFileRecursively(binDir, gccName);
-                                if (foundGcc) {
-                                    cCompiler = foundGcc;
-                                    // Try to find g++ in same dir
-                                    const foundGpp = path.join(path.dirname(foundGcc), gppName);
-                                    if (fs.existsSync(foundGpp)) {
-                                        cxxCompiler = foundGpp;
-                                    }
-                                }
-                            }
-
-                            cCompiler = cCompiler.replace(/\\/g, '/');
-                            cxxCompiler = cxxCompiler.replace(/\\/g, '/');
-                            // asm usually uses gcc
-                            const asmCompiler = cCompiler;
-
-                            genResult = await this.runCmakeGenerate(cmakePath, projectRoot, buildDir.path, [
-                                `-DCMAKE_SYSTEM_NAME=Generic`,
-                                `-DCMAKE_SYSTEM_PROCESSOR=${selected.name.includes('ARM') ? 'arm' : 'riscv'}`,
-                                `-DCMAKE_C_COMPILER=${cCompiler}`,
-                                `-DCMAKE_CXX_COMPILER=${cxxCompiler}`,
-                                `-DCMAKE_ASM_COMPILER=${asmCompiler}`
-                            ], true);
-                        }
-                    }
-                }
-            }
-
-            if (!genResult.success) {
-                // Error message already shown by runCmakeGenerate
-                if (genResult.logParts.length > 0) {
-                    GlobalEvent.emit('globalLog.append', genResult.logParts.join('\n'));
-                    GlobalEvent.emit('globalLog.show');
-                }
-                return;
-            }
-
-            // Verify file was created
-            if (!compileCommandsFile.IsFile()) {
-                // If succeeded but file not found, log the output to help debugging
-                if (genResult.logParts.length > 0) {
-                    genResult.logParts.push(`\n[Hint] If you are using 'Visual Studio Generator' (default on Windows), it does NOT support 'CMAKE_EXPORT_COMPILE_COMMANDS'.`);
-                    genResult.logParts.push(`       You can try to install 'Ninja' or 'MinGW' to solve this problem.`);
-                    GlobalEvent.emit('globalLog.append', genResult.logParts.join('\n'));
-                    GlobalEvent.emit('globalLog.show');
-                }
-
-                const openLogTxt = 'Open Log';
-                const sel = await vscode.window.showErrorMessage(
-                    view_str$operation$cmake_generate_failed,
-                    openLogTxt
-                );
-                if (sel === openLogTxt) {
-                    GlobalEvent.emit('globalLog.show');
-                }
-                return;
-            }
-        }
-
-        // Parse compile_commands.json
-        const cmakeInfo = await cmakeParser.parseCmakeProject(compileCommandsFile);
-        const cmakeRoot = new File(cmakeInfo.rootDir);
-
-        // Determine toolchain based on detected project type
-        let toolchainName: ToolchainName = 'GCC';
-        switch (cmakeInfo.projectType) {
-            case 'ARM':
-                toolchainName = 'GCC';
-                break;
-            case 'RISC-V':
-                toolchainName = 'RISCV_GCC';
-                break;
-            case 'ANY-GCC':
-            default:
-                toolchainName = 'ANY_GCC';
-                break;
-        }
-
-        // Create base EIDE project
-        const basePrj = AbstractProject.NewProject(getGlobalState()).createBase({
-            name: cmakeRoot.name,
-            projectName: cmakeInfo.name,
-            type: cmakeInfo.projectType,
-            outDir: cmakeRoot
-        }, false);
-
-        const nPrjConfig = basePrj.prjConfig.config;
-
-        // Init project info
-        nPrjConfig.virtualFolder = cmakeInfo.virtualFolder;
-        nPrjConfig.toolchain = toolchainName;
-
-        // Set include paths and defines
-        GlobalEvent.emit('globalLog.append', `[CMakeParser] INITIAL IMPORT: Setting dependenceList with ${cmakeInfo.includePaths.length} includes, ${cmakeInfo.defines.length} defines`);
-        nPrjConfig.dependenceList = [{
-            groupName: 'custom',
-            depList: [{
-                name: 'cmake-import',
-                incList: cmakeInfo.includePaths,
-                defineList: cmakeInfo.defines,
-                libList: (cmakeInfo.libPaths || []).concat(cmakeInfo.libs || [])
-            }]
-        }];
-        GlobalEvent.emit('globalLog.append', `[CMakeParser] INITIAL IMPORT: dependenceList set, depList[0].incList.length = ${nPrjConfig.dependenceList[0]?.depList[0]?.incList?.length || 0}`);
-
-        // Store source project path for future refresh capability
-        nPrjConfig.miscInfo = nPrjConfig.miscInfo || {};
-        (<any>nPrjConfig.miscInfo).source_project = {
-            type: 'cmake',
-            path: cmakeListsFile.path
-        };
-
-        // Apply linker script if extracted
-        GlobalEvent.emit('globalLog.append', `[CMakeParser] INITIAL IMPORT: linkerScript = ${cmakeInfo.linkerScript || 'undefined'}, toolchainConfigModel exists = ${!!basePrj.prjConfig.toolchainConfigModel}`);
-        if (cmakeInfo.linkerScript && basePrj.prjConfig.toolchainConfigModel) {
-            const toolchainConfig = basePrj.prjConfig.toolchainConfigModel.data as any;
-            if (toolchainConfig && 'scatterFilePath' in toolchainConfig) {
-                toolchainConfig.scatterFilePath = cmakeInfo.linkerScript;
-                toolchainConfig.useCustomScatterFile = true;
-                GlobalEvent.emit('globalLog.append', `[CMakeParser] INITIAL IMPORT: Applied linker script to scatterFilePath`);
-            }
-        }
-
-        // Save project config
-        GlobalEvent.emit('globalLog.append', `[CMakeParser] INITIAL IMPORT: Saving project config...`);
-        basePrj.prjConfig.Save();
-
-        // Switch project
-        const selection = await vscode.window.showInformationMessage(
-            view_str$operation$import_done, continue_text, cancel_text);
-        if (selection === continue_text) {
-            WorkspaceManager.getInstance().openWorkspace(basePrj.workspaceFile);
-        }
+    async OpenProject(workspaceFilePath: string, switchWorkspaceImmediately?: boolean): Promise<AbstractProject | undefined> {
+        return this.prjManager.OpenProject(workspaceFilePath, switchWorkspaceImmediately);
     }
 
     public async RefreshCmakeProject(element: ProjTreeItem) {
-
         const project = this.GetProjectByIndex(element.val.projectIndex);
         if (!project) return;
 
-        const miscInfo = project.GetConfiguration().config.miscInfo;
-        const source_project = miscInfo ? (<any>miscInfo).source_project : undefined;
-
-        if (!source_project || source_project.type !== 'cmake') {
-            vscode.window.showErrorMessage('Not a CMAKE project !');
-            return;
+        const refreshed = await CMakeImporter.refreshToConfig(project);
+        if (refreshed) {
+            this.UpdateView();
+            vscode.window.showInformationMessage(view_str$operation$cmake_refresh_done || 'Refresh Successfully');
         }
-
-        const cmakeListsFile = new File(project.ToAbsolutePath(source_project.path));
-        if (!cmakeListsFile.IsFile()) {
-            vscode.window.showErrorMessage(`Not found '${cmakeListsFile.path}' !`);
-            return;
-        }
-
-        const projectRoot = cmakeListsFile.dir;
-        const setting = SettingManager.GetInstance();
-        const cmakePath = setting.getCmakeExecutablePath();
-        const buildDirName = setting.getCmakeBuildDirectory();
-        const buildDir = File.fromArray([projectRoot, buildDirName]);
-        const compileCommandsFile = File.fromArray([buildDir.path, 'compile_commands.json']);
-
-        // Run cmake to generate compile_commands.json
-        let genResult = await this.runCmakeGenerate(cmakePath, projectRoot, buildDir.path);
-
-        if (!genResult.success && genResult.isGeneratorMismatch) {
-            const cleanAndRetry = 'Clean and Retry';
-            const sel = await vscode.window.showErrorMessage(
-                'CMake generator mismatch detected ! Do you want to clean the build directory and retry?',
-                cleanAndRetry
-            );
-            if (sel === cleanAndRetry) {
-                try {
-                    const fs = require('fs');
-                    if (fs.existsSync(buildDir.path)) {
-                        fs.rmSync(buildDir.path, { recursive: true, force: true });
-                    }
-                    // Retry
-                    genResult = await this.runCmakeGenerate(cmakePath, projectRoot, buildDir.path);
-                } catch (e) {
-                    vscode.window.showErrorMessage(`Failed to clean build directory: ${(<any>e).message}`);
-                    return;
-                }
-            }
-        }
-
-        // Verify file was created
-        if (!genResult.success || !compileCommandsFile.IsFile()) {
-            if (genResult.logParts.length > 0) {
-                genResult.logParts.push(`\n[Hint] If you are using 'Visual Studio Generator' (default on Windows), it does NOT support 'CMAKE_EXPORT_COMPILE_COMMANDS'.`);
-                genResult.logParts.push(`       You can try to install 'Ninja' or 'MinGW' to solve this problem.`);
-                GlobalEvent.emit('globalLog.append', genResult.logParts.join('\n'));
-                GlobalEvent.emit('globalLog.show');
-            }
-
-            const openLogTxt = 'Open Log';
-            const sel = await vscode.window.showErrorMessage(
-                view_str$operation$cmake_generate_failed,
-                openLogTxt
-            );
-            if (sel === openLogTxt) {
-                GlobalEvent.emit('globalLog.show');
-            }
-            return;
-        }
-
-        // Parse compile_commands.json
-        const cmakeInfo = await cmakeParser.parseCmakeProject(compileCommandsFile);
-
-        // Update project config
-        const prjConfig = project.GetConfiguration();
-        prjConfig.config.virtualFolder = cmakeInfo.virtualFolder;
-
-        // Update dependence
-        prjConfig.config.dependenceList = [{
-            groupName: 'custom',
-            depList: [{
-                name: 'cmake-import',
-                incList: cmakeInfo.includePaths,
-                defineList: cmakeInfo.defines,
-                libList: (cmakeInfo.libPaths || []).concat(cmakeInfo.libs || [])
-            }]
-        }];
-
-        // Apply linker script if extracted
-        if (cmakeInfo.linkerScript && prjConfig.toolchainConfigModel) {
-            const toolchainConfig = prjConfig.toolchainConfigModel.data as any;
-            if (toolchainConfig && 'scatterFilePath' in toolchainConfig) {
-                toolchainConfig.scatterFilePath = cmakeInfo.linkerScript;
-                toolchainConfig.useCustomScatterFile = true;
-            }
-        }
-
-        // Save and reload
-        prjConfig.Save();
-        project.getVirtualSourceManager().load(); // Reload virtual folder from config
-        project.GetDepManager().Refresh(); // Reload dependencies
-        project.forceUpdateCpptoolsConfig();
-        this.UpdateView();
-
-        vscode.window.showInformationMessage(view_str$operation$cmake_refresh_done || 'Refresh Successfully');
     }
 
     public async RefreshKeilProject(element: ProjTreeItem) {
@@ -3256,24 +1851,19 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
     private registerKeilWatcher(project: AbstractProject, keilPath: string, skipIfExists: boolean = true) {
         const uid = project.getUid();
 
-        // If skipIfExists is true and watcher already exists, skip
         if (skipIfExists && this.keilWatchers.has(uid)) {
             return;
         }
 
-        // Clear existing for this project to be safe (if path changed)
         if (this.keilWatchers.has(uid)) {
             this.keilWatchers.get(uid)?.dispose();
             this.keilWatchers.delete(uid);
         }
 
-        // Normalize path for glob pattern (replace backslashes with forward slashes)
-        // This is crucial for VS Code file watcher to work correctly on Windows
         const watchPath = keilPath.replace(/\\/g, '/');
-
         console.log(`[EIDE] Registering Keil Project Watcher: ${watchPath}`);
 
-        const watcher = vscode.workspace.createFileSystemWatcher(watchPath, true, false, true); // ignore create/delete, watch change
+        const watcher = vscode.workspace.createFileSystemWatcher(watchPath, true, false, true);
         watcher.onDidChange(async () => {
             const result = await vscode.window.showInformationMessage(
                 `Detected changes in '${NodePath.basename(keilPath)}'. Do you want to refresh the '${project.GetConfiguration().config.name}' project?`,
@@ -3297,13 +1887,12 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
     private registerCmakeWatcher(project: AbstractProject, cmakePath: string) {
         const uid = project.getUid();
 
-        // If watcher already exists for this project, skip (singleton per project)
         if (this.cmakeWatchers.has(uid)) {
             return;
         }
 
         const watchPath = cmakePath.replace(/\\/g, '/');
-        const watcher = vscode.workspace.createFileSystemWatcher(watchPath, true, false, true); // ignore create/delete, watch change
+        const watcher = vscode.workspace.createFileSystemWatcher(watchPath, true, false, true);
         watcher.onDidChange(async (e) => {
             const changedFile = NodePath.basename(e.fsPath);
             const result = await vscode.window.showInformationMessage(
@@ -3312,418 +1901,19 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
             );
 
             if (result === 'Yes') {
-                // Find project index in prjList
-                const projectIndex = this.prjList.findIndex(p => p.getUid() === uid);
-                console.log('[EIDE DEBUG] User clicked Yes. projectIndex=', projectIndex);
+                const projectIndex = this.prjManager.getProjects().findIndex(p => p.getUid() === uid);
                 if (projectIndex >= 0) {
-                    // Create a minimal ProjTreeItem for RefreshCmakeProject
                     const item = new ProjTreeItem(TreeItemType.SOLUTION, {
                         value: project.getProjectName(),
                         projectIndex: projectIndex,
                         contextVal: 'SOLUTION_CMAKE'
                     }, uid);
-                    console.log('[EIDE DEBUG] Calling RefreshCmakeProject...');
                     await this.RefreshCmakeProject(item);
-                    console.log('[EIDE DEBUG] RefreshCmakeProject completed.');
-                } else {
-                    console.log('[EIDE DEBUG] ERROR: project not found in prjList!');
                 }
             }
         });
 
         this.cmakeWatchers.set(uid, watcher);
-    }
-
-    private async runCmakeGenerate(cmakePath: string, projectRoot: string, buildDir: string, extraArgs?: string[], suppressError: boolean = false): Promise<{ success: boolean; isNotFound: boolean; isGeneratorMismatch?: boolean; logParts: string[] }> {
-        // Execute cmake and collect result
-        const executeResult = await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: view_str$operation$cmake_generating,
-            cancellable: false
-        }, async (): Promise<{ success: boolean; isNotFound: boolean; isGeneratorMismatch?: boolean; logParts: string[] }> => {
-            try {
-                const { spawnSync } = require('child_process');
-
-                const setting = SettingManager.GetInstance();
-                const toolchainArgsStr = setting.getCmakeToolchainArguments();
-
-                let toolchainArgs = toolchainArgsStr.trim().length > 0 ?
-                    parseCliArgs(toolchainArgsStr) : [];
-
-                if (extraArgs) {
-                    toolchainArgs = toolchainArgs.concat(extraArgs);
-                }
-
-                const args = [
-                    '-S', '.',
-                    '-B', buildDir,
-                    '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
-                ];
-
-                // add generator
-                const generatorString = setting.getCmakeGenerator();
-                if (generatorString.length > 0) {
-                    args.push('-G', generatorString);
-                }
-
-                // add build type
-                const buildType = setting.getCmakeBuildType();
-                if (buildType.length > 0) {
-                    args.push(`-DCMAKE_BUILD_TYPE=${buildType}`);
-                }
-
-                // add make program
-                const hasMakeProgramArg = toolchainArgs.some(arg => arg.includes('CMAKE_MAKE_PROGRAM'));
-                let makeProgram = setting.getCmakeMakeProgram();
-
-                if (hasMakeProgramArg) {
-                    // ignore
-                } else if (makeProgram.trim() !== '') {
-                    args.push(`-DCMAKE_MAKE_PROGRAM=${makeProgram}`);
-                } else {
-                    const generatorString = setting.getCmakeGenerator();
-                    if (generatorString.toLowerCase().includes('ninja')) { // check ninja
-                        const platform = require('./Platform');
-                        const ninjaPath = platform.find('ninja');
-                        if (ninjaPath) {
-                            // ignore, cmake can find it
-                        } else {
-                            // try to find in eide tools
-                            const isInstalled = ResInstaller.instance().isToolInstalled('Ninja');
-                            if (isInstalled) {
-                                const binDir = ResManager.GetInstance().getEideToolsInstallDir();
-                                makeProgram = File.fromArray([binDir, 'ninja', `ninja${platform.exeSuffix()}`]).path;
-                                args.push(`-DCMAKE_MAKE_PROGRAM=${makeProgram}`);
-                            } else {
-                                // not found
-                                const done = await ResInstaller.instance().setOrInstallTools('Ninja', 'Ninja build system is not found !', 'EIDE.CMAKE.MakeProgram');
-                                if (!done) return { success: false, isNotFound: true, logParts: [] };
-                                // if installed done, we reload settings and try again ? no, simple way is return error and let user retry
-                                return { success: false, isNotFound: true, logParts: ['Ninja installed done, please retry !'] };
-                            }
-                        }
-                    }
-                }
-
-                // add toolchain args
-                args.push(...toolchainArgs);
-
-                const result = spawnSync(cmakePath, args, {
-                    cwd: projectRoot,
-                    stdio: 'pipe',
-                    shell: true,
-                    encoding: 'buffer'
-                });
-
-                if (result.error || result.status !== 0) {
-                    let errStr = '';
-                    if (result.stderr) {
-                        try {
-                            errStr = result.stderr.toString('utf8');
-                        } catch { errStr = ''; }
-                    }
-
-                    const isNotFound = result.error ||
-                        errStr.includes('not recognized') ||
-                        errStr.includes('not found') ||
-                        errStr.includes('无法找到') ||
-                        errStr.includes('不是内部或外部命令') ||
-                        (result.status === 1 && errStr === '');
-
-                    const stripAnsi = (str: string) => str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-                    const fullOutput = stripAnsi(errStr + '\n' + (result.stdout ? result.stdout.toString('utf8') : ''));
-                    const isGeneratorMismatch = /does not match the generator used previously/i.test(fullOutput);
-
-                    // Build log parts
-                    const logParts: string[] = [
-                        `\n========== CMAKE Generate Failed ==========`,
-                        `Command: ${cmakePath} ${args.join(' ')}`,
-                        `Working Dir: ${projectRoot}`,
-                        `Exit Code: ${result.status}`
-                    ];
-
-                    if (result.stdout && result.stdout.length > 0) {
-                        try { logParts.push(`\n----- STDOUT -----\n${result.stdout.toString('utf8')}`); } catch { /* ignore */ }
-                    }
-                    if (result.stderr && result.stderr.length > 0) {
-                        try { logParts.push(`\n----- STDERR -----\n${result.stderr.toString('utf8')}`); } catch { /* ignore */ }
-                    }
-                    logParts.push(`\n============================================\n`);
-
-                    return { success: false, isNotFound, isGeneratorMismatch, logParts };
-                }
-
-                // Success case - still return logs if any, for debugging
-                const logParts: string[] = [];
-                if (result.stdout && result.stdout.length > 0) {
-                    try {
-                        const out = result.stdout.toString('utf8');
-                        if (out.trim().length > 0)
-                            logParts.push(`\n----- STDOUT -----\n${out}`);
-                    } catch { /* ignore */ }
-                }
-                // Even on success, stderr might have warnings
-                if (result.stderr && result.stderr.length > 0) {
-                    try {
-                        const err = result.stderr.toString('utf8');
-                        if (err.trim().length > 0)
-                            logParts.push(`\n----- STDERR -----\n${err}`);
-                    } catch { /* ignore */ }
-                }
-
-                return { success: true, isNotFound: false, logParts };
-            } catch (e) {
-                const logParts = [
-                    `\n========== CMAKE Generate Exception ==========`,
-                    `Error: ${(<Error>e).message}`,
-                    `Stack: ${(<Error>e).stack}`,
-                    `============================================\n`
-                ];
-                GlobalEvent.emit('msg', ExceptionToMessage(<Error>e, 'Warning'));
-                return { success: false, isNotFound: false, logParts };
-            }
-        });
-
-        // Handle result outside of withProgress
-        if (!executeResult.success && !suppressError) {
-            // Output log AND show log panel
-            if (executeResult.logParts.length > 0) {
-                GlobalEvent.emit('globalLog.append', executeResult.logParts.join('\n'));
-                GlobalEvent.emit('globalLog.show');
-            }
-
-            if (executeResult.isNotFound) {
-                const sel = await vscode.window.showWarningMessage(
-                    view_str$operation$cmake_not_found,
-                    txt_jump2settings
-                );
-                if (sel === txt_jump2settings) {
-                    SettingManager.jumpToSettings('EIDE.CMAKE.ExecutablePath');
-                }
-            } else {
-                const openLogTxt = 'Open Log';
-                const sel = await vscode.window.showErrorMessage(
-                    view_str$operation$cmake_generate_failed,
-                    openLogTxt
-                );
-                if (sel === openLogTxt) {
-                    GlobalEvent.emit('globalLog.show');
-                }
-            }
-        }
-
-        return executeResult;
-    }
-
-    private async ImportKeilProject(option: ImportOptions) {
-        await KeilImporter.importProject(option);
-    }
-
-    async CreateFromTemplate(option: CreateOptions) {
-
-        const compresser = new SevenZipper(ResManager.GetInstance().Get7zDir());
-        const templateFile = <File>option.templateFile;
-
-        const targetDir = new File(option.outDir.path + File.sep + option.name);
-        const targetWorkspaceFile = File.from(targetDir.path,
-            (option.projectName || option.name) + AbstractProject.workspaceSuffix);
-
-        try {
-
-            targetDir.CreateDir(true);
-
-            const err = await vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
-                title: `Creating project`
-            }, async (progress): Promise<Error | undefined> => {
-
-                progress.report({ message: 'Unzip template', increment: 10 });
-
-                const e = await compresser.Unzip(templateFile, targetDir);
-                if (e) return e;
-
-                progress.report({ message: 'Generating', increment: 50 });
-
-                return new Promise((resolve) => {
-
-                    const post_create_task = async () => {
-
-                        try {
-
-                            const wsFileList = targetDir.GetList([/\.code-workspace$/i], File.EXCLUDE_ALL_FILTER);
-                            const wsFile: File | undefined = wsFileList.length > 0 ? wsFileList[0] : undefined;
-
-                            if (wsFile) {
-
-                                // rename workspace file name
-                                fs.renameSync(wsFile.path, targetWorkspaceFile.path);
-
-                                // rename project
-                                if (templateFile.suffix != '.ewt') { // ignore eide workspace project
-
-                                    // init project
-                                    if (!detectProject(targetDir))
-                                        throw Error(`No found any project in this workspace.`);
-
-                                    try {
-                                        await doMigration(targetDir);
-                                        const pfile = File.from(targetDir.path, AbstractProject.EIDE_DIR, AbstractProject.prjConfigName);
-                                        const prjConf = ProjectConfiguration.parseProjectFile(pfile.Read());
-                                        prjConf.name = option.name; // set project name
-                                        if (prjConf.miscInfo) prjConf.miscInfo.uid = undefined; // reset uid
-                                        pfile.Write(ProjectConfiguration.dumpProjectFile(prjConf));
-                                    } catch (error) {
-                                        throw Error(`Init project failed !, msg: ${error.message}`);
-                                    }
-                                }
-                            }
-
-                            resolve(undefined);
-
-                        } catch (error) {
-                            resolve(error);
-                        }
-                    };
-
-                    setTimeout(post_create_task, 400);
-                });
-            });
-
-            if (err) {
-                throw err;
-            }
-
-            // switch workspace if user select `yes`
-            const item = await vscode.window.showInformationMessage(
-                view_str$operation$create_prj_done, 'Yes', 'Later'
-            );
-
-            // switch workspace
-            if (item === 'Yes') {
-                const wsFile = targetWorkspaceFile;
-                if (wsFile.IsFile()) {
-                    WorkspaceManager.getInstance().openWorkspace(wsFile);
-                }
-            }
-
-        } catch (error) {
-            GlobalEvent.emit('msg', newMessage('Warning', `Create project failed !, msg: ${(<Error>error).message}`));
-            GlobalEvent.emit('msg', ExceptionToMessage(error, 'Hidden'));
-        }
-    }
-
-    async UninstallKeilPackage(item: ProjTreeItem) {
-        const prj = this.prjList[item.val.projectIndex];
-        if (prj.GetPackManager().GetPack()) {
-            return prj.UninstallPack(<string>item.val.value);
-        }
-    }
-
-    SaveAll() {
-        this.prjList.forEach(sln => sln.Save(true));
-    }
-
-    CloseAll() {
-        this.prjList.forEach(sln => sln.Close());
-        this.prjList = [];
-    }
-
-    //---
-
-    getRecords(): string[] {
-        return Array.from(this.slnRecord);
-    }
-
-    clearAllRecords() {
-        this.slnRecord = [];
-        this.saveRecord();
-    }
-
-    removeRecord(record: string) {
-        const i = this.slnRecord.findIndex(str => { return str === record; });
-        if (i !== -1) {
-            this.slnRecord.splice(i, 1);
-        }
-    }
-
-    saveRecord() {
-        if (this.slnRecord.length > ProjectDataProvider.RecMaxNum) {
-            this.slnRecord.splice(0, this.slnRecord.length - ProjectDataProvider.RecMaxNum);
-        }
-        this.recFile.Write(JSON.stringify(this.slnRecord));
-    }
-
-    private addRecord(path: string) {
-        if (!this.slnRecord.includes(path)) {
-            this.slnRecord.push(path);
-        }
-    }
-
-    private loadRecord() {
-        if (this.recFile.IsFile()) {
-            try {
-                this.slnRecord = JSON.parse(this.recFile.Read());
-            } catch (err) {
-                this.slnRecord = [];
-                GlobalEvent.emit('msg', ExceptionToMessage(err, 'Hidden'));
-            }
-        }
-    }
-
-    //---
-
-    async SetDevice(index: number) {
-
-        const prj = this.prjList[index];
-        const packInfo = prj.GetPackManager().GetPack();
-
-        if (packInfo) {
-            const devList = prj.GetPackManager().GetDeviceList().map((dev) => {
-                return <vscode.QuickPickItem>{ label: dev.name, description: dev.core };
-            });
-            const item = await vscode.window.showQuickPick(devList, {
-                placeHolder: 'Found ' + devList.length + ' devices, ' + set_device_hint,
-                canPickMany: false,
-                matchOnDescription: true
-            });
-            if (item) {
-                prj.GetPackManager().SetDeviceInfo(item.label, item.description);
-            }
-        }
-    }
-
-    private registerProject(proj: AbstractProject) {
-        this.prjList.push(proj);
-        proj.on('dataChanged', (type) => this.onProjectChanged(proj, type));
-        this.addRecord(proj.getWsPath());
-        this.UpdateView();
-    }
-
-    Close(index: number): string | undefined {
-
-        if (index < 0 || index >= this.prjList.length) {
-            GlobalEvent.emit('error', new Error('Project index out of range: ' + index.toString()));
-            return;
-        }
-
-        const sln = this.prjList[index];
-
-        sln.Close();
-        this.prjList.splice(index, 1);
-        this.UpdateView();
-
-        return sln.getUid();
-    }
-
-    private async SwitchProject(prj: AbstractProject, immediately?: boolean) {
-        if (immediately) {
-            WorkspaceManager.getInstance().openWorkspace(prj.GetWorkspaceConfig().GetFile());
-        } else {
-            const selection = await vscode.window.showInformationMessage(switch_workspace_hint, continue_text, cancel_text);
-            if (selection === continue_text) {
-                WorkspaceManager.getInstance().openWorkspace(prj.GetWorkspaceConfig().GetFile());
-            }
-        }
     }
 }
 
@@ -3865,10 +2055,10 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         GlobalEvent.on('project.closed', (uid) => this.onProjectClosed(uid));
         GlobalEvent.on('project.activeStatusChanged', (uid) => this.notifyCpptoolsRefresh());
 
-        this.on('request_open_project', (fsPath: string) => this.dataProvider.OpenProject(fsPath));
-        this.on('request_create_project', (option: CreateOptions) => this.dataProvider.CreateProject(option));
-        this.on('request_create_from_template', (option) => this.dataProvider.CreateFromTemplate(option));
-        this.on('request_import_project', (option) => this.dataProvider.ImportProject(option));
+        this.on('request_open_project', (fsPath: string) => ProjectManager.getInstance().OpenProject(fsPath));
+        this.on('request_create_project', (option: CreateOptions) => ProjectManager.getInstance().CreateProject(option));
+        this.on('request_create_from_template', (option) => ProjectManager.getInstance().CreateFromTemplate(option));
+        this.on('request_import_project', (option) => ProjectManager.getInstance().ImportProject(option));
     }
 
     onDispose() {
