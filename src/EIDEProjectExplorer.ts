@@ -952,7 +952,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                 bar.text = `$(tools) Build`;
                 if (activeProj) {
                     let txt = `Build eide project:`;
-                    let repath = activeProj.ToRelativePath(activeProj.getExecutablePath());
+                    const repath = activeProj.ToRelativePath(activeProj.getExecutablePath());
                     txt += `${os.EOL}  - output: \`${repath}\``;
                     bar.tooltip = new vscode.MarkdownString(txt);
                 } else {
@@ -967,8 +967,8 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                         const flasher = HexUploaderManager.getInstance().createUploader(activeProj);
                         let txt = `Upload binary file to device:`;
                         flasher.getAllProgramFiles().forEach(f => {
-                            let repath = activeProj.ToRelativePath(f.path) || f.path;
-                            txt += `${os.EOL}  - \`${repath}\``
+                            const repath = activeProj.ToRelativePath(f.path) || f.path;
+                            txt += `${os.EOL}  - \`${repath}\``;
                         });
                         bar.tooltip = new vscode.MarkdownString(txt);
                     } catch (error) {
@@ -1057,6 +1057,19 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                     const globPattern = `${projectRoot}/**/CMakeLists.txt`;
                     console.log('[EIDE DEBUG] Registering CMake watcher with glob:', globPattern);
                     this.registerCmakeWatcher(project, globPattern);
+                }
+
+                // Auto-register Keil project watcher on project load
+                if (isKeilProject) {
+                    let keilProjectPath: string | undefined;
+                    if ((<any>miscInfo).mdk_project_path) {
+                        keilProjectPath = (<any>miscInfo).mdk_project_path;
+                    } else if ((<any>miscInfo).source_project && (<any>miscInfo).source_project.path) {
+                        keilProjectPath = project.ToAbsolutePath((<any>miscInfo).source_project.path);
+                    }
+                    if (keilProjectPath && new File(keilProjectPath).IsFile()) {
+                        this.registerKeilWatcher(project, keilProjectPath);
+                    }
                 }
 
                 iList.push(cItem);
@@ -1597,7 +1610,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                             // - not support sdcc, keil_c51 now !
                             if (!['Keil_C51', 'SDCC'].includes(project.getToolchain().name)) {
 
-                                let vFile = File.fromArray([project.getRootDir().path, `${project.getUid()}.elf-symbols`]);
+                                const vFile = File.fromArray([project.getRootDir().path, `${project.getUid()}.elf-symbols`]);
                                 iList.push(new ProjTreeItem(TreeItemType.OUTPUT_FILE_ITEM, {
                                     label: `Symbol Table`,
                                     value: vFile,
@@ -1776,37 +1789,37 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
         switch (typ.toLowerCase()) {
             case 'a':
-                typeStr = 'ABS'
+                typeStr = 'ABS';
                 break;
             case 'b':
-                typeStr = 'BSS'
+                typeStr = 'BSS';
                 break;
             case 'c':
-                typeStr = 'COMMON'
+                typeStr = 'COMMON';
                 break;
             case 'd':
-                typeStr = 'DATA'
+                typeStr = 'DATA';
                 break;
             case 'i':
-                typeStr = `Indirect Reference`
+                typeStr = `Indirect Reference`;
                 break;
             case 'n':
-                typeStr = `Debug`
+                typeStr = `Debug`;
                 break;
             case 'r':
-                typeStr = `DATA (Read Only)`
+                typeStr = `DATA (Read Only)`;
                 break;
             case 't':
-                typeStr = `TEXT`
+                typeStr = `TEXT`;
                 break;
             case 'u':
-                typeStr = `Undefined`
+                typeStr = `Undefined`;
                 break;
             case 'v':
-                typeStr = `Weak`
+                typeStr = `Weak`;
                 break;
             case 'w':
-                typeStr = `Weak (unspecified)`
+                typeStr = `Weak (unspecified)`;
                 break;
             default:
                 break;
@@ -1814,7 +1827,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
         if (typeStr) {
             if (typ.toLowerCase() == typ) { // is a lowercase word
-                typeStr += ' (Local)'
+                typeStr += ' (Local)';
             }
         }
 
@@ -1825,7 +1838,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
         return typ;
     }
 
-    private printProjectBinarySymbols(uri: vscode.Uri,
+    private async printProjectBinarySymbols(uri: vscode.Uri,
         sortType?: 'addr' | 'size', dispType?: 'hide_no_sized' | 'show_all'): Promise<string> {
 
         if (sortType == undefined) {
@@ -1836,355 +1849,350 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
             dispType = 'show_all';
         }
 
-        return new Promise(async (resolve) => {
+        const uid = new File(uri.fsPath).noSuffixName;
+        const prj = this.getProjectByUid(uid);
 
-            const uid = new File(uri.fsPath).noSuffixName;
-            const prj = this.getProjectByUid(uid);
+        if (prj == undefined) {
+            return `Error: Not found project '${uid}' !`;
+        }
 
-            if (prj == undefined) {
-                resolve(`Error: Not found project '${uid}' !`);
-                return;
+        try {
+
+            const toolchain = prj.getToolchain();
+            const toolchainPrefix = toolchain.getToolchainPrefix ? toolchain.getToolchainPrefix() : '';
+
+            let elfpath = '';
+            let elftool = '';
+            let elfcmds = [''];
+            let elfsort = false; // elftool has sorted ?
+
+            let staMatcher: RegExp | undefined;
+            let endMatcher: RegExp | undefined;
+            let symMatcher: RegExp | undefined;
+            let symTypConv: ((type: string) => string) | undefined;
+            let locMatcher: RegExp | undefined;
+
+            // sometimes a long line has been truncated, like this:
+            //  4183: Temperature_Sampling_NVIC_Configuration
+            //                              0x800f4d1   5 Code Gb   0x38
+            // we need match and recover them !
+            let truncatStaMatcher: RegExp | undefined;
+            let truncatEndMatcher: RegExp | undefined;
+
+            switch (toolchain.name) {
+                // armcc fmt: 
+                //   #  Symbol Name                Value      Bind  Sec  Type  Vis  Size
+                case 'AC5':
+                case 'AC6':
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'bin', `fromelf${exeSuffix()}`].join(File.sep);
+                    elfcmds = ['--text', '-s', elfpath];
+                    staMatcher = /\(SHT_SYMTAB\)/;
+                    endMatcher = /^\*\* Section/;
+                    truncatStaMatcher = /^\s*\d+\s+(?:[^\s]+)\s*$/i;
+                    truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i;
+                    symMatcher = /^\s*\d+\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+)\s+(?:[^\s]+)(?<size>\s+[^\s]+)?/i;
+                    break;
+                // iar fmt:
+                //   # Name                                Value      Sec Type Bd Size   Group Other
+                case 'IAR_ARM':
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'bin', `ielfdumparm${exeSuffix()}`].join(File.sep);
+                    elfcmds = ['-s', '.symtab', elfpath];
+                    symMatcher = /^\s*\d+:\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+\s+[^\s]+)(?<size>\s+0x[0-9a-f]+)?/i;
+                    truncatStaMatcher = /^\s*\d+:\s+(?:[^\s]+)\s*$/i;
+                    truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i;
+                    break;
+                case 'IAR_STM8':
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'stm8', 'bin', `ielfdumpstm8${exeSuffix()}`].join(File.sep);
+                    elfcmds = ['-s', '.symtab', elfpath];
+                    symMatcher = /^\s*\d+:\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+\s+[^\s]+)(?<size>\s+0x[0-9a-f]+)?/i;
+                    truncatStaMatcher = /^\s*\d+:\s+(?:[^\s]+)\s*$/i;
+                    truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i;
+                    break;
+                case 'GCC':
+                case 'RISCV_GCC':
+                case 'ANY_GCC':
+                case 'MIPS_GCC':
+                case 'MTI_GCC':
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'bin', `${toolchainPrefix}nm${exeSuffix()}`].join(File.sep);
+                    elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
+                    elfsort = true;
+                    symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
+                    symTypConv = (t) => this.convGnuSymbolType2ReadableString(t);
+                    break;
+                case 'COSMIC_STM8':
+                    // cobj -s .\stm8-cosmic.sm8
+                    //  __memory:       0000001a section .bss defined public
+                    //  __stack:        000003ff section absolute defined public absolute
+                    //  c_y:            00000007 section .ubsct defined public zpage
+                    //  f_exit:         00008221 section .text defined public
+                    //  f_main:         00008165 section .text defined public
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, `cobj${exeSuffix()}`].join(File.sep);
+                    elfcmds = ['-s', elfpath];
+                    symMatcher = /^\s*(?<name>\w+):\s+(?<addr>[0-9a-f]+)\s+\w+\s+(?<type>[\w\.]+)/i;
+                    break;
+                case 'LLVM_ARM':
+                    // 2001132c 000002d0 B hUsbDeviceFS        c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/App\usb_device.c:45
+                    // 200115fc 00000200 B USBD_StrDesc        c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/App\usbd_desc.c:235
+                    // 200117fc 0000040c B hpcd_USB_OTG_FS     c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/Target\usbd_conf.c:41
+                    // 20011c08 00000004 B __malloc_free_list
+                    // 20011c0c 00000004 B __malloc_sbrk_top
+                    // 20011c10 00000004 B __malloc_sbrk_start
+                    // 20011c14 00000001 B __lock___libc_recursive_mutex
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'bin', `llvm-nm${exeSuffix()}`].join(File.sep);
+                    elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
+                    elfsort = true;
+                    symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
+                    symTypConv = (t) => this.convGnuSymbolType2ReadableString(t);
+                    break;
+                case 'GNU_SDCC_MCS51':
+                    elfpath = prj.getExecutablePath();
+                    elftool = [toolchain.getToolchainDir().path, 'bin', `i51-elf-nm${exeSuffix()}`].join(File.sep);
+                    elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
+                    elfsort = true;
+                    symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
+                    symTypConv = (t) => this.convGnuSymbolType2ReadableString(t);
+                    break;
+                default:
+                    throw new Error(`Not support symbol view for '${toolchain.name}' !`);
             }
 
-            try {
+            if (!File.IsFile(elfpath)) {
+                throw new Error(`Not found elf file: '${elfpath}', please build your project !`);
+            }
 
-                const toolchain = prj.getToolchain();
-                const toolchainPrefix = toolchain.getToolchainPrefix ? toolchain.getToolchainPrefix() : '';
+            if (!File.IsFile(elftool)) {
+                throw new Error(`Not found elf tool: '${elftool}' !`);
+            }
 
-                let elfpath = '';
-                let elftool = '';
-                let elfcmds = [''];
-                let elfsort = false; // elftool has sorted ?
-
-                let staMatcher: RegExp | undefined;
-                let endMatcher: RegExp | undefined;
-                let symMatcher: RegExp | undefined;
-                let symTypConv: ((type: string) => string) | undefined;
-                let locMatcher: RegExp | undefined;
-
-                // sometimes a long line has been truncated, like this:
-                //  4183: Temperature_Sampling_NVIC_Configuration
-                //                              0x800f4d1   5 Code Gb   0x38
-                // we need match and recover them !
-                let truncatStaMatcher: RegExp | undefined;
-                let truncatEndMatcher: RegExp | undefined;
-
-                switch (toolchain.name) {
-                    // armcc fmt: 
-                    //   #  Symbol Name                Value      Bind  Sec  Type  Vis  Size
-                    case 'AC5':
-                    case 'AC6':
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'bin', `fromelf${exeSuffix()}`].join(File.sep);
-                        elfcmds = ['--text', '-s', elfpath];
-                        staMatcher = /\(SHT_SYMTAB\)/
-                        endMatcher = /^\*\* Section/
-                        truncatStaMatcher = /^\s*\d+\s+(?:[^\s]+)\s*$/i
-                        truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i
-                        symMatcher = /^\s*\d+\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+)\s+(?:[^\s]+)(?<size>\s+[^\s]+)?/i
-                        break;
-                    // iar fmt:
-                    //   # Name                                Value      Sec Type Bd Size   Group Other
-                    case 'IAR_ARM':
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'bin', `ielfdumparm${exeSuffix()}`].join(File.sep);
-                        elfcmds = ['-s', '.symtab', elfpath];
-                        symMatcher = /^\s*\d+:\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+\s+[^\s]+)(?<size>\s+0x[0-9a-f]+)?/i;
-                        truncatStaMatcher = /^\s*\d+:\s+(?:[^\s]+)\s*$/i
-                        truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i
-                        break;
-                    case 'IAR_STM8':
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'stm8', 'bin', `ielfdumpstm8${exeSuffix()}`].join(File.sep);
-                        elfcmds = ['-s', '.symtab', elfpath];
-                        symMatcher = /^\s*\d+:\s+(?<name>[^\s]+)\s+(?<addr>0x[0-9a-f]+)\s+(?:[^\s]+)\s+(?<type>[^\s]+\s+[^\s]+)(?<size>\s+0x[0-9a-f]+)?/i;
-                        truncatStaMatcher = /^\s*\d+:\s+(?:[^\s]+)\s*$/i
-                        truncatEndMatcher = /^\s*0x[0-9a-f]+\s+/i
-                        break;
-                    case 'GCC':
-                    case 'RISCV_GCC':
-                    case 'ANY_GCC':
-                    case 'MIPS_GCC':
-                    case 'MTI_GCC':
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'bin', `${toolchainPrefix}nm${exeSuffix()}`].join(File.sep);
-                        elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
-                        elfsort = true;
-                        symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
-                        symTypConv = (t) => this.convGnuSymbolType2ReadableString(t)
-                        break;
-                    case 'COSMIC_STM8':
-                        // cobj -s .\stm8-cosmic.sm8
-                        //  __memory:       0000001a section .bss defined public
-                        //  __stack:        000003ff section absolute defined public absolute
-                        //  c_y:            00000007 section .ubsct defined public zpage
-                        //  f_exit:         00008221 section .text defined public
-                        //  f_main:         00008165 section .text defined public
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, `cobj${exeSuffix()}`].join(File.sep);
-                        elfcmds = ['-s', elfpath];
-                        symMatcher = /^\s*(?<name>\w+):\s+(?<addr>[0-9a-f]+)\s+\w+\s+(?<type>[\w\.]+)/i;
-                        break;
-                    case 'LLVM_ARM':
-                        // 2001132c 000002d0 B hUsbDeviceFS        c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/App\usb_device.c:45
-                        // 200115fc 00000200 B USBD_StrDesc        c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/App\usbd_desc.c:235
-                        // 200117fc 0000040c B hpcd_USB_OTG_FS     c:\Users\xx+FatFs+USB_device_demo-template\./USB_DEVICE/Target\usbd_conf.c:41
-                        // 20011c08 00000004 B __malloc_free_list
-                        // 20011c0c 00000004 B __malloc_sbrk_top
-                        // 20011c10 00000004 B __malloc_sbrk_start
-                        // 20011c14 00000001 B __lock___libc_recursive_mutex
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'bin', `llvm-nm${exeSuffix()}`].join(File.sep);
-                        elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
-                        elfsort = true;
-                        symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
-                        symTypConv = (t) => this.convGnuSymbolType2ReadableString(t)
-                        break;
-                    case 'GNU_SDCC_MCS51':
-                        elfpath = prj.getExecutablePath();
-                        elftool = [toolchain.getToolchainDir().path, 'bin', `i51-elf-nm${exeSuffix()}`].join(File.sep);
-                        elfcmds = sortType == 'size' ? ['-l', '-S', '--size-sort', elfpath] : ['-ln', '-S', elfpath];
-                        elfsort = true;
-                        symMatcher = /^(?<addr>[0-9a-f]+)\s+(?<size>[0-9a-f]+\s+)?(?<type>\w)\s+(?<name>[^\s]+)\s+(?<loca>.*)/i;
-                        symTypConv = (t) => this.convGnuSymbolType2ReadableString(t)
-                        break;
-                    default:
-                        throw new Error(`Not support symbol view for '${toolchain.name}' !`);
-                }
-
-                if (!File.IsFile(elfpath)) {
-                    throw new Error(`Not found elf file: '${elfpath}', please build your project !`);
-                }
-
-                if (!File.IsFile(elftool)) {
-                    throw new Error(`Not found elf tool: '${elftool}' !`);
-                }
-
-                // Don't use 'child_process.execFileSync' because a huge file 
-                // will cause an ENOBUF Error.
-                const doReadSymbolLines = (toolpath: string, cmds: string[]): Promise<string[]> => {
-                    return new Promise((resolve) => {
-                        const executable = new ExeFile();
-                        const results: string[] = [];
-                        executable.on('line', (line) => {
-                            results.push(line);
-                        });
-                        executable.on('close', () => {
-                            resolve(results);
-                        });
-                        executable.on('error', (err) => {
-                            GlobalEvent.log_warn(err);
-                        });
-                        executable.Run(toolpath, cmds);
+            // Don't use 'child_process.execFileSync' because a huge file 
+            // will cause an ENOBUF Error.
+            const doReadSymbolLines = (toolpath: string, cmds: string[]): Promise<string[]> => {
+                return new Promise((resolve) => {
+                    const executable = new ExeFile();
+                    const results: string[] = [];
+                    executable.on('line', (line) => {
+                        results.push(line);
                     });
-                };
+                    executable.on('close', () => {
+                        resolve(results);
+                    });
+                    executable.on('error', (err) => {
+                        GlobalEvent.log_warn(err);
+                    });
+                    executable.Run(toolpath, cmds);
+                });
+            };
 
-                let textLines = await doReadSymbolLines(elftool, elfcmds);
+            let textLines = await doReadSymbolLines(elftool, elfcmds);
 
-                // filter lines
-                // notes:
-                //  - will contain the line that matched by 'staMatcher'
-                //  - Not  contain the line that matched by 'endMatcher'
-                if (staMatcher) {
+            // filter lines
+            // notes:
+            //  - will contain the line that matched by 'staMatcher'
+            //  - Not  contain the line that matched by 'endMatcher'
+            if (staMatcher) {
 
-                    let matchedLines: string[] = [];
-                    let started = false;
+                const matchedLines: string[] = [];
+                let started = false;
 
-                    for (const line of textLines) {
+                for (const line of textLines) {
 
-                        if (!started && staMatcher.test(line)) {
-                            started = true;
+                    if (!started && staMatcher.test(line)) {
+                        started = true;
+                    }
+
+                    if (started) {
+
+                        if (matchedLines.length > 0 &&
+                            endMatcher && endMatcher.test(line)) {
+                            break;
                         }
 
-                        if (started) {
-
-                            if (matchedLines.length > 0 &&
-                                endMatcher && endMatcher.test(line)) {
-                                break;
-                            }
-
-                            matchedLines.push(line);
-                        }
-                    }
-
-                    textLines = matchedLines;
-                }
-
-                // if no pattern, output raw text
-                if (symMatcher === undefined) {
-                    resolve(textLines.join(os.EOL));
-                    return;
-                }
-
-                const tableHeader: string[] = ['Address', 'Size', 'Type', 'Symbol Name', 'Location'];
-
-                let resultLines: string[][] = [];
-
-                let col_addr_maxLen = tableHeader[0].length;
-                let col_size_maxLen = tableHeader[1].length;
-                let col_type_maxLen = tableHeader[2].length;
-                let col_name_maxLen = tableHeader[3].length;
-                let col_loca_maxLen = tableHeader[4].length;
-
-                let sym_cur_file_location: string | undefined;
-
-                let sym_count = 0;
-
-                for (let i = 0; i < textLines.length; i++) {
-
-                    let line = textLines[i];
-
-                    if (locMatcher) {
-                        const m = locMatcher.exec(line);
-                        if (m && m.groups) {
-                            sym_cur_file_location = m.groups['loca']?.trim();
-                        }
-                    }
-
-                    if (truncatStaMatcher && truncatEndMatcher) {
-                        let nxtLine = i + 1 < textLines.length ? textLines[i + 1] : undefined;
-                        if (nxtLine &&
-                            truncatStaMatcher.test(line) && truncatEndMatcher.test(nxtLine)) {
-                            line = line + nxtLine;
-                            i++;
-                        }
-                    }
-
-                    const m = symMatcher.exec(line);
-                    if (!(m && m.groups)) { // no matched
-                        continue;
-                    }
-
-                    let addr = m.groups['addr']?.trim();
-                    let size = m.groups['size']?.trim();
-                    let type = m.groups['type']?.trim();
-                    let name = m.groups['name']?.trim();
-                    let loca = m.groups['loca']?.trim();
-
-                    if (!addr || !name) {
-                        continue;
-                    }
-
-                    sym_count++;
-
-                    if (type && symTypConv) {
-                        type = symTypConv(type);
-                    }
-
-                    // symbol name is a source file ?
-                    if (/\.(?:c|cpp|cxx|c\+\+|cc|s|asm)$/i.test(name)) {
-                        sym_cur_file_location = name;
-                        continue;
-                    }
-
-                    size = size || '--';
-                    type = type || '--';
-                    loca = loca || sym_cur_file_location || '--';
-                    loca = prj.toRelativePath(loca) || loca;
-
-                    if (dispType == 'hide_no_sized' && size == '--') {
-                        continue; // ignore no-size symbols
-                    }
-
-                    col_addr_maxLen = addr.length > col_addr_maxLen ? addr.length : col_addr_maxLen;
-                    col_size_maxLen = size.length > col_size_maxLen ? size.length : col_size_maxLen;
-                    col_type_maxLen = type.length > col_type_maxLen ? type.length : col_type_maxLen;
-                    col_name_maxLen = name.length > col_name_maxLen ? name.length : col_name_maxLen;
-                    col_loca_maxLen = loca.length > col_loca_maxLen ? loca.length : col_loca_maxLen;
-
-                    resultLines.push([addr, size, type, name, loca]);
-                }
-
-                // sort lines
-                if (!elfsort) {
-
-                    if (sortType == 'addr') {
-
-                        resultLines = resultLines.sort((a1, a2) => {
-                            const addr_1 = parseInt(a1[0], 16);
-                            const addr_2 = parseInt(a2[0], 16);
-                            return addr_1 - addr_2;
-                        });
-                    }
-
-                    else if (sortType == 'size') {
-
-                        let notSizeSyms: string[][] = [];
-                        let hasSizeSyms: string[][] = [];
-
-                        resultLines.forEach(sym => {
-                            if (sym[1].startsWith('--')) {
-                                notSizeSyms.push(sym);
-                            } else {
-                                hasSizeSyms.push(sym);
-                            }
-                        });
-
-                        hasSizeSyms = hasSizeSyms.sort((a1, a2) => {
-                            const size_1 = parseInt(a1[1], 16);
-                            const size_2 = parseInt(a2[1], 16);
-                            return size_1 - size_2;
-                        });
-
-                        resultLines = notSizeSyms.concat(hasSizeSyms);
+                        matchedLines.push(line);
                     }
                 }
 
-                // dump result
-
-                let headerLines = [
-                    '',
-                    'ELF Symbols',
-                    `  - Tool: '${elftool}'`,
-                    `  - Cmds: '${elfcmds.join(' ')}'`,
-                    `  - Symbol Count: ${sym_count}`,
-                    ''
-                ];
-
-                let outputLines: string[] = headerLines;
-
-                // make header
-                {
-                    outputLines.push(
-                        `--${''.padEnd(col_addr_maxLen, '-')}-` +
-                        `--${''.padEnd(col_size_maxLen, '-')}-` +
-                        `--${''.padEnd(col_type_maxLen, '-')}-` +
-                        `--${''.padEnd(col_name_maxLen, '-')}-` +
-                        `--${''.padEnd(col_loca_maxLen, '-')}-`);
-
-                    outputLines.push(
-                        `| ${tableHeader[0].padEnd(col_addr_maxLen)} ` +
-                        `| ${tableHeader[1].padEnd(col_size_maxLen)} ` +
-                        `| ${tableHeader[2].padEnd(col_type_maxLen)} ` +
-                        `| ${tableHeader[3].padEnd(col_name_maxLen)} ` +
-                        `| ${tableHeader[4].padEnd(col_loca_maxLen)} `);
-
-                    outputLines.push(
-                        `--${''.padEnd(col_addr_maxLen, '-')}-` +
-                        `--${''.padEnd(col_size_maxLen, '-')}-` +
-                        `--${''.padEnd(col_type_maxLen, '-')}-` +
-                        `--${''.padEnd(col_name_maxLen, '-')}-` +
-                        `--${''.padEnd(col_loca_maxLen, '-')}-`);
-                }
-
-                for (let i = 1; i < resultLines.length; i++) {
-
-                    outputLines.push(
-                        `| ${resultLines[i][0].padEnd(col_addr_maxLen)} ` +
-                        `| ${resultLines[i][1].padEnd(col_size_maxLen)} ` +
-                        `| ${resultLines[i][2].padEnd(col_type_maxLen)} ` +
-                        `| ${resultLines[i][3].padEnd(col_name_maxLen)} ` +
-                        `| ${resultLines[i][4].padEnd(col_loca_maxLen)} `);
-                }
-
-                outputLines.push('');
-
-                resolve(outputLines.join(os.EOL));
-
-            } catch (error) {
-                resolve('Error: ' + (<Error>error).message);
+                textLines = matchedLines;
             }
-        });
+
+            // if no pattern, output raw text
+            if (symMatcher === undefined) {
+                return textLines.join(os.EOL);
+            }
+
+            const tableHeader: string[] = ['Address', 'Size', 'Type', 'Symbol Name', 'Location'];
+
+            let resultLines: string[][] = [];
+
+            let col_addr_maxLen = tableHeader[0].length;
+            let col_size_maxLen = tableHeader[1].length;
+            let col_type_maxLen = tableHeader[2].length;
+            let col_name_maxLen = tableHeader[3].length;
+            let col_loca_maxLen = tableHeader[4].length;
+
+            let sym_cur_file_location: string | undefined;
+
+            let sym_count = 0;
+
+            for (let i = 0; i < textLines.length; i++) {
+
+                let line = textLines[i];
+
+                if (locMatcher) {
+                    const m = locMatcher.exec(line);
+                    if (m && m.groups) {
+                        sym_cur_file_location = m.groups['loca']?.trim();
+                    }
+                }
+
+                if (truncatStaMatcher && truncatEndMatcher) {
+                    const nxtLine = i + 1 < textLines.length ? textLines[i + 1] : undefined;
+                    if (nxtLine &&
+                        truncatStaMatcher.test(line) && truncatEndMatcher.test(nxtLine)) {
+                        line = line + nxtLine;
+                        i++;
+                    }
+                }
+
+                const m = symMatcher.exec(line);
+                if (!(m && m.groups)) { // no matched
+                    continue;
+                }
+
+                const addr = m.groups['addr']?.trim();
+                let size = m.groups['size']?.trim();
+                let type = m.groups['type']?.trim();
+                const name = m.groups['name']?.trim();
+                let loca = m.groups['loca']?.trim();
+
+                if (!addr || !name) {
+                    continue;
+                }
+
+                sym_count++;
+
+                if (type && symTypConv) {
+                    type = symTypConv(type);
+                }
+
+                // symbol name is a source file ?
+                if (/\.(?:c|cpp|cxx|c\+\+|cc|s|asm)$/i.test(name)) {
+                    sym_cur_file_location = name;
+                    continue;
+                }
+
+                size = size || '--';
+                type = type || '--';
+                loca = loca || sym_cur_file_location || '--';
+                loca = prj.toRelativePath(loca) || loca;
+
+                if (dispType == 'hide_no_sized' && size == '--') {
+                    continue; // ignore no-size symbols
+                }
+
+                col_addr_maxLen = addr.length > col_addr_maxLen ? addr.length : col_addr_maxLen;
+                col_size_maxLen = size.length > col_size_maxLen ? size.length : col_size_maxLen;
+                col_type_maxLen = type.length > col_type_maxLen ? type.length : col_type_maxLen;
+                col_name_maxLen = name.length > col_name_maxLen ? name.length : col_name_maxLen;
+                col_loca_maxLen = loca.length > col_loca_maxLen ? loca.length : col_loca_maxLen;
+
+                resultLines.push([addr, size, type, name, loca]);
+            }
+
+            // sort lines
+            if (!elfsort) {
+
+                if (sortType == 'addr') {
+
+                    resultLines = resultLines.sort((a1, a2) => {
+                        const addr_1 = parseInt(a1[0], 16);
+                        const addr_2 = parseInt(a2[0], 16);
+                        return addr_1 - addr_2;
+                    });
+                }
+
+                else if (sortType == 'size') {
+
+                    const notSizeSyms: string[][] = [];
+                    let hasSizeSyms: string[][] = [];
+
+                    resultLines.forEach(sym => {
+                        if (sym[1].startsWith('--')) {
+                            notSizeSyms.push(sym);
+                        } else {
+                            hasSizeSyms.push(sym);
+                        }
+                    });
+
+                    hasSizeSyms = hasSizeSyms.sort((a1, a2) => {
+                        const size_1 = parseInt(a1[1], 16);
+                        const size_2 = parseInt(a2[1], 16);
+                        return size_1 - size_2;
+                    });
+
+                    resultLines = notSizeSyms.concat(hasSizeSyms);
+                }
+            }
+
+            // dump result
+
+            const headerLines = [
+                '',
+                'ELF Symbols',
+                `  - Tool: '${elftool}'`,
+                `  - Cmds: '${elfcmds.join(' ')}'`,
+                `  - Symbol Count: ${sym_count}`,
+                ''
+            ];
+
+            const outputLines: string[] = headerLines;
+
+            // make header
+            {
+                outputLines.push(
+                    `--${''.padEnd(col_addr_maxLen, '-')}-` +
+                    `--${''.padEnd(col_size_maxLen, '-')}-` +
+                    `--${''.padEnd(col_type_maxLen, '-')}-` +
+                    `--${''.padEnd(col_name_maxLen, '-')}-` +
+                    `--${''.padEnd(col_loca_maxLen, '-')}-`);
+
+                outputLines.push(
+                    `| ${tableHeader[0].padEnd(col_addr_maxLen)} ` +
+                    `| ${tableHeader[1].padEnd(col_size_maxLen)} ` +
+                    `| ${tableHeader[2].padEnd(col_type_maxLen)} ` +
+                    `| ${tableHeader[3].padEnd(col_name_maxLen)} ` +
+                    `| ${tableHeader[4].padEnd(col_loca_maxLen)} `);
+
+                outputLines.push(
+                    `--${''.padEnd(col_addr_maxLen, '-')}-` +
+                    `--${''.padEnd(col_size_maxLen, '-')}-` +
+                    `--${''.padEnd(col_type_maxLen, '-')}-` +
+                    `--${''.padEnd(col_name_maxLen, '-')}-` +
+                    `--${''.padEnd(col_loca_maxLen, '-')}-`);
+            }
+
+            for (let i = 1; i < resultLines.length; i++) {
+
+                outputLines.push(
+                    `| ${resultLines[i][0].padEnd(col_addr_maxLen)} ` +
+                    `| ${resultLines[i][1].padEnd(col_size_maxLen)} ` +
+                    `| ${resultLines[i][2].padEnd(col_type_maxLen)} ` +
+                    `| ${resultLines[i][3].padEnd(col_name_maxLen)} ` +
+                    `| ${resultLines[i][4].padEnd(col_loca_maxLen)} `);
+            }
+
+            outputLines.push('');
+
+            return outputLines.join(os.EOL);
+
+        } catch (error) {
+            return 'Error: ' + (<Error>error).message;
+        }
     }
 
     private async _OpenProject(workspaceFilePath: string, workspaceState: vscode.Memento): Promise<AbstractProject | undefined> {
@@ -2300,11 +2308,11 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
     ImportProject(option: ImportOptions) {
 
-        let catchErr = (error: any) => {
+        const catchErr = (error: any) => {
             const msg = `${view_str$operation$import_failed}: ${(<Error>error).message}`;
             GlobalEvent.emit('msg', newMessage('Warning', msg));
             GlobalEvent.emit('msg', ExceptionToMessage(error, 'Hidden'));
-        }
+        };
 
         switch (option.type) {
             case 'mdk':
@@ -2679,7 +2687,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
             // for arm gcc toolchain
             if (nEideTarget.toolchain == 'GCC') {
 
-                var guessArmCpuType = (archName?: string): string | undefined => {
+                const guessArmCpuType = (archName?: string): string | undefined => {
                     if (!archName)
                         return undefined;
                     // @note: this list is trimed, not full
@@ -3391,8 +3399,8 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
             vscode.window.showInformationMessage('Project Refreshed from: ' + projectFile.name);
 
-            // Register watcher if not exists
-            this.registerKeilWatcher(project, projectFile.path);
+            // Register watcher (force re-register in case path changed)
+            this.registerKeilWatcher(project, projectFile.path, false);
 
             // Sync Scatter File & Storage Layout (For ARM)
             if (!isC51) {
@@ -3433,16 +3441,28 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
 
     private keilWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
-    private registerKeilWatcher(project: AbstractProject, keilPath: string) {
+    private registerKeilWatcher(project: AbstractProject, keilPath: string, skipIfExists: boolean = true) {
         const uid = project.getUid();
+
+        // If skipIfExists is true and watcher already exists, skip
+        if (skipIfExists && this.keilWatchers.has(uid)) {
+            return;
+        }
+
         // Clear existing for this project to be safe (if path changed)
         if (this.keilWatchers.has(uid)) {
             this.keilWatchers.get(uid)?.dispose();
             this.keilWatchers.delete(uid);
         }
 
-        const watcher = vscode.workspace.createFileSystemWatcher(keilPath, true, false, true); // ignore create/delete, watch change
-        watcher.onDidChange(async (e) => {
+        // Normalize path for glob pattern (replace backslashes with forward slashes)
+        // This is crucial for VS Code file watcher to work correctly on Windows
+        const watchPath = keilPath.replace(/\\/g, '/');
+
+        console.log(`[EIDE] Registering Keil Project Watcher: ${watchPath}`);
+
+        const watcher = vscode.workspace.createFileSystemWatcher(watchPath, true, false, true); // ignore create/delete, watch change
+        watcher.onDidChange(async () => {
             const result = await vscode.window.showInformationMessage(
                 `Detected changes in '${NodePath.basename(keilPath)}'. Do you want to refresh the '${project.GetConfiguration().config.name}' project?`,
                 'Yes', 'No'
@@ -3454,6 +3474,10 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
         });
 
         this.keilWatchers.set(uid, watcher);
+    }
+
+    public registerKeilWatcherForProject(project: AbstractProject, keilPath: string) {
+        this.registerKeilWatcher(project, keilPath);
     }
 
     private cmakeWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
@@ -3876,7 +3900,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                     let locate = dep.packPath;
                     if (dep.instance) {
                         locate = baseInfo.rootFolder
-                            .ToRelativePath(dep.instance[0]) || dep.instance[0]
+                            .ToRelativePath(dep.instance[0]) || dep.instance[0];
                     }
 
                     const nLine: string[] = [
@@ -3915,7 +3939,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
             }
 
             return baseOpts;
-        }
+        };
 
         const replaceUserTaskTmpVar = (t: any) => {
             const reKeilPrjDir = baseInfo.rootFolder.ToRelativeLocalPath(keilPrjFile.dir) || keilPrjFile.dir;
@@ -3931,7 +3955,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                         t.command = t.command.replace('$<cd:mdk-proj-dir>', `cd .\\${reKeilPrjDir}`);
                 }
             }
-        }
+        };
 
         // project env
         const prjenv: any = {};
@@ -4076,7 +4100,7 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
             const err = await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: `Creating project`
-            }, async (progress): Promise<Error> => {
+            }, async (progress): Promise<Error | undefined> => {
 
                 progress.report({ message: 'Unzip template', increment: 10 });
 
@@ -4456,11 +4480,11 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                 const fullrange = document.getWordRangeAtPosition(position, /[^\s"]+|"[^"]+"/);
                 if (fullrange) {
 
-                    let txt = document.getText(new vscode.Range(fullrange.start, position)).trim()
+                    const txt = document.getText(new vscode.Range(fullrange.start, position)).trim()
                         .replace(/^(\/|\\)+/, '')
                         .replace(/(\/|\\)+$/, '');
 
-                    let p = new File(proj.toAbsolutePath(txt));
+                    const p = new File(proj.toAbsolutePath(txt));
                     if (p.IsDir()) {
                         return p.GetList(undefined, undefined).map(f => new PathCompletionItem(f));
                     }
@@ -4550,91 +4574,81 @@ export class ProjectExplorer implements CustomConfigurationProvider {
     // Map<sourePath, ProjectUid[]>
     private _sourceWhereFroms: Map<string, string[]> = new Map();
 
-    canProvideConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Thenable<boolean> {
+    async canProvideConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Promise<boolean> {
 
         this.cppToolsOut.appendLine(`[source] cpptools request provideConfigurations for '${uri.fsPath}'`);
 
-        return new Promise(async (resolve) => {
+        const providerList: string[] = [];
 
-            const providerList: string[] = [];
+        await this.dataProvider.traverseProjectsAsync(async (prj) => {
 
-            await this.dataProvider.traverseProjectsAsync(async (prj) => {
+            const result = await prj.canProvideConfiguration(uri, token);
+            if (result) {
+                providerList.push(prj.getUid());
+            }
 
-                const result = await prj.canProvideConfiguration(uri, token);
-                if (result) {
-                    providerList.push(prj.getUid());
+            return false; // don't break loop
+        });
+
+        if (providerList.length > 0) {
+            this._sourceWhereFroms.set(uri.fsPath, providerList);
+            return true;
+        } else {
+            this._sourceWhereFroms.delete(uri.fsPath);
+            return false;
+        }
+    }
+
+    async provideConfigurations(uris: vscode.Uri[], token?: vscode.CancellationToken | undefined): Promise<SourceFileConfigurationItem[]> {
+
+        let result: SourceFileConfigurationItem[] = [];
+
+        const activePrjUid = this.getActiveProject()?.getUid();
+
+        for (const uri of uris) {
+
+            const prjList = this._sourceWhereFroms.get(uri.fsPath);
+            if (prjList == undefined || prjList.length == 0) continue;
+
+            let proj: AbstractProject | undefined;
+            if (activePrjUid) {
+                const pidx = prjList.findIndex(uid => uid == activePrjUid);
+                if (pidx != -1) {
+                    proj = this.dataProvider.getProjectByUid(prjList[pidx]);
                 }
-
-                return false; // don't break loop
-            });
-
-            if (providerList.length > 0) {
-                this._sourceWhereFroms.set(uri.fsPath, providerList);
-                resolve(true);
             } else {
-                this._sourceWhereFroms.delete(uri.fsPath);
-                resolve(false);
-            }
-        });
-    }
-
-    provideConfigurations(uris: vscode.Uri[], token?: vscode.CancellationToken | undefined): Thenable<SourceFileConfigurationItem[]> {
-
-        return new Promise(async (resolve) => {
-
-            let result: SourceFileConfigurationItem[] = [];
-
-            const activePrjUid = this.getActiveProject()?.getUid();
-
-            for (const uri of uris) {
-
-                const prjList = this._sourceWhereFroms.get(uri.fsPath);
-                if (prjList == undefined || prjList.length == 0) continue;
-
-                let proj: AbstractProject | undefined;
-                if (activePrjUid) {
-                    const pidx = prjList.findIndex(uid => uid == activePrjUid);
-                    if (pidx != -1) {
-                        proj = this.dataProvider.getProjectByUid(prjList[pidx]);
-                    }
-                } else {
-                    proj = this.dataProvider.getProjectByUid(prjList[0]);
-                }
-
-                if (proj) {
-                    result = result.concat(await proj.provideConfigurations([uri], token));
-                }
+                proj = this.dataProvider.getProjectByUid(prjList[0]);
             }
 
-            resolve(result);
+            if (proj) {
+                result = result.concat(await proj.provideConfigurations([uri], token));
+            }
+        }
 
-            this.cppToolsOut.appendLine(`[source] provideConfigurations`);
-            this.cppToolsOut.appendLine(yml.stringify(result));
-        });
+        this.cppToolsOut.appendLine(`[source] provideConfigurations`);
+        this.cppToolsOut.appendLine(yml.stringify(result));
+
+        return result;
     }
 
-    canProvideBrowseConfigurationsPerFolder(token?: vscode.CancellationToken | undefined): Thenable<boolean> {
-        return new Promise(async (resolve) => {
-            let result = false;
-            await this.dataProvider.traverseProjectsAsync(async (prj) => {
-                result = await prj.canProvideBrowseConfigurationsPerFolder(token);
-                return result;
-            });
-            resolve(result);
+    async canProvideBrowseConfigurationsPerFolder(token?: vscode.CancellationToken | undefined): Promise<boolean> {
+        let result = false;
+        await this.dataProvider.traverseProjectsAsync(async (prj) => {
+            result = await prj.canProvideBrowseConfigurationsPerFolder(token);
+            return result;
         });
+        return result;
     }
 
-    provideFolderBrowseConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Thenable<WorkspaceBrowseConfiguration | null> {
-        return new Promise(async (resolve) => {
-            let result: WorkspaceBrowseConfiguration | null = null;
-            await this.dataProvider.traverseProjectsAsync(async (prj) => {
-                result = await prj.provideFolderBrowseConfiguration(uri, token);
-                return result !== null;
-            });
-            resolve(result);
-            this.cppToolsOut.appendLine(`[folder] provideFolderBrowseConfiguration for '${uri.fsPath}'`);
-            this.cppToolsOut.appendLine(yml.stringify(result));
+    async provideFolderBrowseConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Promise<WorkspaceBrowseConfiguration | null> {
+        let result: WorkspaceBrowseConfiguration | null = null;
+        await this.dataProvider.traverseProjectsAsync(async (prj) => {
+            result = await prj.provideFolderBrowseConfiguration(uri, token);
+            return result !== null;
         });
+        this.cppToolsOut.appendLine(`[folder] provideFolderBrowseConfiguration for '${uri.fsPath}'`);
+        this.cppToolsOut.appendLine(yml.stringify(result));
+        return result;
     }
 
     /**
@@ -4688,7 +4702,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                     cfg = yaml.parse(fclangd.Read());
                 }
                 if (!cfg['CompileFlags']) cfg['CompileFlags'] = {};
-                if (!cfg['CompileFlags']['Add']) cfg['CompileFlags']['Add'] = []
+                if (!cfg['CompileFlags']['Add']) cfg['CompileFlags']['Add'] = [];
                 if (!cfg['CompileFlags']['Remove']) cfg['CompileFlags']['Remove'] = [];
                 //
                 cfg['CompileFlags']['CompilationDatabase'] = './' + File.ToUnixPath(prj.getOutputDir());
@@ -4697,11 +4711,11 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                 if (gccLikePath) { // clangd 仅兼容gcc的编译器
                     cfg['CompileFlags']['Compiler'] = gccLikePath;
                     let clangdCompileFlags = <string[]>(cfg['CompileFlags']['Add']);
-                    let compilerArgs = prj.getCpptoolsConfig().cppCompilerArgs;
+                    const compilerArgs = prj.getCpptoolsConfig().cppCompilerArgs;
                     if (isGccFamilyToolchain(toolchain.name)) {
                         const tRoot = toolchain.getToolchainDir().path;
                         clangdCompileFlags = clangdCompileFlags.filter(p => !File.isSubPathOf(tRoot, p.substr(2)));
-                        let li = getGccSystemSearchList(File.ToLocalPath(gccLikePath), ['-xc++'].concat(compilerArgs || []));
+                        const li = getGccSystemSearchList(File.ToLocalPath(gccLikePath), ['-xc++'].concat(compilerArgs || []));
                         if (li) {
                             li.forEach(p => {
                                 clangdCompileFlags.push(`-I${File.normalize(p)}`);
@@ -4736,7 +4750,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                         .forEach(d => compilerFlags.push(`-D"${d.name}=${d.value}"`));
                     cfg['CompileFlags']['Add'] = ArrayDelRepetition(compilerFlags);
                     // 禁用所有诊断错误，因为 clangd 不支持这些编译器
-                    cfg['Diagnostics'] = { 'Suppress': '*' }
+                    cfg['Diagnostics'] = { 'Suppress': '*' };
                 }
                 fclangd.Write(yaml.stringify(cfg));
             } catch (error) {
@@ -4822,6 +4836,38 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         this.updateCompilerDiagsAfterBuild(prj);
 
         prj.on('projectFileChanged', () => this.onProjectFileChanged(prj));
+
+        // Register Keil project watcher if this is a Keil-sourced project
+        this.tryRegisterKeilWatcher(prj);
+    }
+
+    private tryRegisterKeilWatcher(prj: AbstractProject) {
+        const miscInfo = prj.GetConfiguration().config.miscInfo;
+
+        // 1. Try to get from config
+        let keilProjectPath: string | undefined;
+
+        if (miscInfo) {
+            if ((<any>miscInfo).mdk_project_path) {
+                keilProjectPath = (<any>miscInfo).mdk_project_path;
+            } else if ((<any>miscInfo).source_project && (<any>miscInfo).source_project.type === 'mdk') {
+                keilProjectPath = prj.ToAbsolutePath((<any>miscInfo).source_project.path);
+            }
+        }
+
+        // 2. If not found in config, try auto-discover
+        if (!keilProjectPath) {
+            const root = prj.getProjectRoot();
+            const uvFiles = root.GetList([/\.uvproj[x]?$/i], File.EXCLUDE_ALL_FILTER);
+            if (uvFiles.length === 1) {
+                keilProjectPath = uvFiles[0].path;
+                console.log(`[EIDE] Auto-discovered Keil project file: ${keilProjectPath}`);
+            }
+        }
+
+        if (keilProjectPath && new File(keilProjectPath).IsFile()) {
+            this.dataProvider.registerKeilWatcherForProject(prj, keilProjectPath);
+        }
     }
 
     private __autosaveDisableTimeoutTimer: NodeJS.Timeout | undefined;
@@ -4901,7 +4947,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
 
     private async createTarget(prj: AbstractProject) {
 
-        let targetName = await vscode.window.showInputBox({
+        const targetName = await vscode.window.showInputBox({
             placeHolder: 'Input a target name',
             ignoreFocusOut: true,
             validateInput: (val: string) => {
@@ -5260,7 +5306,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             // make default order is 100
             if (buildCfg.order == undefined ||
                 buildCfg.order == null ||
-                buildCfg.order == NaN) {
+                isNaN(buildCfg.order)) {
                 buildCfg.order = 100;
             }
 
@@ -5438,95 +5484,92 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         vscode.window.withProgress<void>({
             location: vscode.ProgressLocation.Notification,
             title: `Installing cmsis package`
-        }, (progress) => {
-            return new Promise(async (resolve_) => {
+        }, async (progress): Promise<void> => {
 
-                const resolve = () => {
-                    this.installLocked = false;
-                    resolve_();
-                };
+            const resolve = () => {
+                this.installLocked = false;
+            };
 
-                try {
+            try {
 
-                    progress.report({ message: 'preparing ...' });
+                progress.report({ message: 'preparing ...' });
 
-                    let packFile: File;
+                let packFile: File;
 
-                    const insType = await vscode.window.showQuickPick<vscode.QuickPickItem>([
-                        {
-                            label: 'From Repo',
-                            detail: 'Download cmsis pack from the repository and install'
-                        },
-                        {
-                            label: 'From Disk',
-                            detail: 'Select cmsis pack file from your computer and install'
-                        }
-                    ], {
-                        placeHolder: `Select an installation type. Press 'Esc' to exit`,
-                        canPickMany: false,
-                        ignoreFocusOut: true
-                    });
+                const insType = await vscode.window.showQuickPick<vscode.QuickPickItem>([
+                    {
+                        label: 'From Repo',
+                        detail: 'Download cmsis pack from the repository and install'
+                    },
+                    {
+                        label: 'From Disk',
+                        detail: 'Select cmsis pack file from your computer and install'
+                    }
+                ], {
+                    placeHolder: `Select an installation type. Press 'Esc' to exit`,
+                    canPickMany: false,
+                    ignoreFocusOut: true
+                });
 
-                    if (insType === undefined) { // canceled, exit
+                if (insType === undefined) { // canceled, exit
+                    resolve();
+                    return;
+                }
+
+                // download from internet
+                if (insType.label == 'From Repo') {
+
+                    progress.report({ message: 'waiting download task done ...' });
+
+                    const res = await this.startDownloadCmsisPack();
+
+                    if (res === undefined) { // canceled, exit
                         resolve();
                         return;
                     }
 
-                    // download from internet
-                    if (insType.label == 'From Repo') {
-
-                        progress.report({ message: 'waiting download task done ...' });
-
-                        const res = await this.startDownloadCmsisPack();
-
-                        if (res === undefined) { // canceled, exit
-                            resolve();
-                            return;
-                        }
-
-                        if (res instanceof Error) {
-                            GlobalEvent.emit('msg', ExceptionToMessage(res, 'Warning'));
-                            resolve();
-                            return;
-                        }
-
-                        packFile = res;
+                    if (res instanceof Error) {
+                        GlobalEvent.emit('msg', ExceptionToMessage(res, 'Warning'));
+                        resolve();
+                        return;
                     }
 
-                    // from disk
-                    else {
-                        const urls = await vscode.window.showOpenDialog({
-                            defaultUri: vscode.Uri.file(prj.GetRootDir().path),
-                            canSelectFolders: false,
-                            canSelectFiles: true,
-                            openLabel: install_this_pack,
-                            filters: {
-                                'Cmsis Package': ['pack']
-                            }
-                        });
+                    packFile = res;
+                }
 
-                        if (urls === undefined) { // canceled, exit
-                            resolve();
-                            return;
+                // from disk
+                else {
+                    const urls = await vscode.window.showOpenDialog({
+                        defaultUri: vscode.Uri.file(prj.GetRootDir().path),
+                        canSelectFolders: false,
+                        canSelectFiles: true,
+                        openLabel: install_this_pack,
+                        filters: {
+                            'Cmsis Package': ['pack']
                         }
-
-                        packFile = new File(urls[0].fsPath);
-                    }
-
-                    await prj.InstallPack(packFile, (_progress, msg) => {
-                        progress.report({
-                            increment: _progress ? 12 : undefined,
-                            message: msg
-                        });
                     });
 
-                    resolve();
+                    if (urls === undefined) { // canceled, exit
+                        resolve();
+                        return;
+                    }
 
-                } catch (error) {
-                    GlobalEvent.emit('msg', ExceptionToMessage(error, 'Warning'));
-                    resolve();
+                    packFile = new File(urls[0].fsPath);
                 }
-            });
+
+                await prj.InstallPack(packFile, (_progress, msg) => {
+                    progress.report({
+                        increment: _progress ? 12 : undefined,
+                        message: msg
+                    });
+                });
+
+                resolve();
+
+            } catch (error) {
+                GlobalEvent.emit('msg', ExceptionToMessage(error, 'Warning'));
+                resolve();
+            }
         });
     }
 
@@ -5651,7 +5694,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         }, (progress, cancel) => {
             return new Promise<boolean>((resolve) => {
                 const proc = new ExeCmd();
-                let errLines: string[] = [`Execute: ${cmdLine}`];
+                const errLines: string[] = [`Execute: ${cmdLine}`];
                 proc.on('launch', () => {
                     progress.report({ message: 'Running ...' });
                     GlobalEvent.log_info(`Export Makefile: ${cmdLine}`);
@@ -5753,20 +5796,19 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                 location: vscode.ProgressLocation.Notification,
                 title: isWorkspace ? `Packing workspace` : `Packing project`,
                 cancellable: false
-            }, (progress, __): Thenable<Error | null> => {
-                return new Promise(async (resolve) => {
+            }, async (progress, __): Promise<Error | null> => {
 
-                    progress.report({ message: 'zipping ...' });
+                progress.report({ message: 'zipping ...' });
 
-                    const err = await compresser.Zip(prjRootDir, option, distDir);
-                    if (err) {
-                        GlobalEvent.emit('msg', ExceptionToMessage(err, 'Warning'));
-                    } else {
-                        progress.report({ message: 'export done !' });
-                    }
+                const err = await compresser.Zip(prjRootDir, option, distDir);
+                if (err) {
+                    GlobalEvent.emit('msg', ExceptionToMessage(err, 'Warning'));
+                } else {
+                    progress.report({ message: 'export done !' });
+                }
 
-                    setTimeout(() => resolve(err), 1500);
-                });
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                return err;
             });
 
             if (prj) { // save prj
@@ -6209,7 +6251,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                             ? '请注意：如果启用了LTO，则存储器分配选项会失效。'
                             : 'Notice: The memory assignment options will not take effect if you enable the LTO. '
                     }
-                }
+                };
             }
 
             const toolchainConfig = project.GetConfiguration<ArmBaseCompileData>().config.toolchainConfig;
@@ -6217,12 +6259,12 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             const romLayout = toolchainConfig.storageLayout.ROM;
 
             // Use for config enum. 
-            let roList: string[] = ['default'];
-            let rwList: string[] = ['default'];
+            const roList: string[] = ['default'];
+            const rwList: string[] = ['default'];
 
             // Use for config enum Description. 
-            let roListDesc: string[] = ['default'];
-            let rwListDesc: string[] = ['default'];
+            const roListDesc: string[] = ['default'];
+            const rwListDesc: string[] = ['default'];
             romLayout.forEach((value) => {
                 roList.push(getRamRomName(value));
                 roListDesc.push(`${getRamRomName(value)} (${getRamRomRange(value)})`);
@@ -6329,7 +6371,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             }
 
             let category: string = 'files';
-            let fileOptions: any = extraArgs;
+            const fileOptions: any = extraArgs;
 
             if (virtpath) {
                 category = 'virtualPathFiles';
@@ -6362,7 +6404,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             // option: memoryAssign
             //   Only for AC5 and AC6 Compiler
             if (supportMemeoryAssignment) {
-                let memoryAssign = extraArgs.memoryAssign || {};
+                const memoryAssign = extraArgs.memoryAssign || {};
 
                 let new_cfg_item = <SimpleUIConfigData_options>new_cfg.items['ro_data_assign'].data;
                 const roAssign = new_cfg_item.value;
@@ -6530,7 +6572,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             }
 
             let category: string = 'files';
-            let argsConf: any = extraArgs;
+            const argsConf: any = extraArgs;
 
             if (isVirtpath) {
                 category = 'virtualPathFiles';
@@ -6632,20 +6674,20 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             }, async (progress): Promise<Error | undefined> => {
                 try {
                     progress.report({ message: elfPath });
-                    await new Promise((resolve) => { setTimeout(() => resolve(), 500); });
+                    await new Promise((resolve) => { setTimeout(() => resolve(undefined), 500); });
 
                     // run
                     const cmdLine = CmdLineHandler.getCommandLine(exeFile.path, cmds, false);
                     child_process.execSync(cmdLine, { encoding: 'ascii' });
 
                     progress.report({ message: 'Done !' });
-                    await new Promise((resolve) => { setTimeout(() => resolve(), 500); });
+                    await new Promise((resolve) => { setTimeout(() => resolve(undefined), 500); });
                 } catch (error) {
                     return error;
                 }
             });
 
-            if (err) { throw err }
+            if (err) { throw err; }
 
             // check result file
             if (!dasmFile.IsFile()) {
@@ -6918,7 +6960,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         const depMerge = prjConfig.GetAllMergeDep();
         const builderOpts = prjConfig.toolchainConfigModel.getOptions();
         const defMacros: string[] = ['__VSCODE_CPPTOOL']; /* it's for internal force include header */
-        let defList: string[] = defMacros.concat(depMerge.defineList);
+        const defList: string[] = defMacros.concat(depMerge.defineList);
         depMerge.incList = ArrayDelRepetition(depMerge.incList.concat(prj.getSourceIncludeList()));
         const includeList: string[] = depMerge.incList.map(p => prj.resolveEnvVar(p)).map(p => File.ToUnixPath(confRootDir.ToRelativePath(p) || p));
         const intrHeader: string[] | undefined = toolchain.getForceIncludeHeaders();
@@ -6943,7 +6985,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             }
 
             return srcList;
-        }
+        };
 
         /* set cppcheck conf */
         const is8bit = prjConfig.config.type == 'C51';
@@ -7388,7 +7430,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                     //
                     progress.report({ message: `running importer ...` });
                     await new Promise((resolve) => {
-                        setTimeout(() => resolve(), 500);
+                        setTimeout(() => resolve(undefined), 500);
                     });
 
                     //
@@ -7423,7 +7465,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                                     label: prj.name,
                                     description: prj.target,
                                     detail: `${prjFile.name} -> ${prj.name}${prj.target ? (': ' + prj.target) : ''}`
-                                }
+                                };
                             });
                             const selectedItem = await vscode.window.showQuickPick<any>(itemList,
                                 {
@@ -7456,10 +7498,10 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                             const vFolder = folderStack.pop();
                             if (vFolder) {
                                 vFolder.files = vFolder.files.map((file) => {
-                                    return { path: prj.toRelativePath(file.path) }
+                                    return { path: prj.toRelativePath(file.path) };
                                 });
                                 vFolder.folders.forEach((folder) => {
-                                    folderStack.push(folder)
+                                    folderStack.push(folder);
                                 });
                             }
                         }
@@ -7518,7 +7560,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                     prj.Save();
 
                     await new Promise((resolve) => {
-                        setTimeout(() => resolve(), 1000);
+                        setTimeout(() => resolve(undefined), 1000);
                     });
 
                 } catch (error) {
@@ -7627,7 +7669,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             const incPath = repath;
             const grpName = includesMap.get(repath);
 
-            let descpLi: string[] = [];
+            const descpLi: string[] = [];
 
             if (grpName && grpName != ProjectConfiguration.CUSTOM_GROUP_NAME) {
                 descpLi.push(grpName);
@@ -7671,7 +7713,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             const libPath = keyVal[0];
             const grpName = keyVal[1];
 
-            let descpLi: string[] = [];
+            const descpLi: string[] = [];
 
             if (grpName != ProjectConfiguration.CUSTOM_GROUP_NAME) {
                 descpLi.push(grpName);
@@ -7963,7 +8005,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             ignoreFocusOut: true,
             validateInput: (input: string): string | undefined => {
                 if (input.trim() === '')
-                    return 'Cannot be empty or whitespace !'
+                    return 'Cannot be empty or whitespace !';
                 if (itype == 'DEFINE_ITEM') {
                     if (!/^\w+(=[^\s].*)?$/i.test(input))
                         return "Cannot have whitespace on either side of '=' !";
@@ -8016,7 +8058,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
     }
 
     ImportPackageDependence(item: ProjTreeItem): void {
-        let prj = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
+        const prj = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
         try {
             prj.InstallComponent(<string>item.val.value);
         } catch (err) {
@@ -8030,7 +8072,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
     }
 
     RemovePackageDependence(item: ProjTreeItem): void {
-        let prj = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
+        const prj = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
         try {
             prj.UninstallComponent(<string>item.val.value);
         } catch (err) {
@@ -8074,8 +8116,8 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         const project = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
         const setting = SettingManager.GetInstance();
 
-        let toolchainPathSettingName = setting.trimSettingTag(project.getToolchain().settingName);
-        let toolchainPath = setting.getConfiguration().get(toolchainPathSettingName) || '';
+        const toolchainPathSettingName = setting.trimSettingTag(project.getToolchain().settingName);
+        const toolchainPath = setting.getConfiguration().get(toolchainPathSettingName) || '';
 
         const toolchain = project.getToolchain();
         const isChinese = getLocalLanguageType() == LanguageIndexs.Chinese;
@@ -8507,13 +8549,13 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                 const flasherConf = <OpenOCDFlashOptions>prj.GetConfiguration().config.uploadConfig;
                 if (flasherConf.interface) {
                     (<any[]>debugConfig.configFiles).push(toCfgPath('interface', flasherConf.interface));
-                    let idx = interface_enums.findIndex(n => n == flasherConf.interface);
+                    const idx = interface_enums.findIndex(n => n == flasherConf.interface);
                     if (idx != -1)
                         inferface_default = idx;
                 }
                 if (flasherConf.target) {
                     (<any[]>debugConfig.configFiles).push(toCfgPath('target', flasherConf.target));
-                    let idx = target_enums.findIndex(n => n == flasherConf.target);
+                    const idx = target_enums.findIndex(n => n == flasherConf.target);
                     if (idx != -1)
                         target_default = idx;
                 }
@@ -8705,8 +8747,8 @@ export class ProjectExplorer implements CustomConfigurationProvider {
 
             /* merge debugConfig and write into launch.json */
             let edits: jsonc_parser.EditResult;
-            let fmtOpts = <jsonc_parser.FormattingOptions>{ tabSize: 4, insertSpaces: true };
-            let raw_cont = cfgfile.Read();
+            const fmtOpts = <jsonc_parser.FormattingOptions>{ tabSize: 4, insertSpaces: true };
+            const raw_cont = cfgfile.Read();
             if (result.override_idx != -1)
                 edits = jsonc_parser.modify(raw_cont, ['configurations', result.override_idx], result.debug_config, { formattingOptions: fmtOpts });
             else
@@ -8949,7 +8991,7 @@ class VFolderSourcePathsModifier implements ModifiableYamlConfigProvider {
 
                 let yamlFile: File;
 
-                let oldName = getOldFileNameByProject(vInfo.path, project);
+                const oldName = getOldFileNameByProject(vInfo.path, project);
                 if (oldName) {
                     yamlFile = File.fromArray([os.tmpdir(), oldName]);
                 } else { // if file not exist, add to mapper
@@ -9081,7 +9123,7 @@ class ProjectAttrModifier implements ModifiableYamlConfigProvider {
                 `IncludeFolders:`,
             );
             cusDep.incList.forEach((path) => {
-                yamlLines.push(`    - ${prj.toRelativePath(path)}`)
+                yamlLines.push(`    - ${prj.toRelativePath(path)}`);
             });
 
             // push lib folder path
@@ -9091,7 +9133,7 @@ class ProjectAttrModifier implements ModifiableYamlConfigProvider {
                 `LibraryFolders:`,
             );
             cusDep.libList.forEach((path) => {
-                yamlLines.push(`    - ${prj.toRelativePath(path)}`)
+                yamlLines.push(`    - ${prj.toRelativePath(path)}`);
             });
 
             // push macros
@@ -9101,7 +9143,7 @@ class ProjectAttrModifier implements ModifiableYamlConfigProvider {
                 `Defines:`,
             );
             cusDep.defineList.forEach((macro) => {
-                yamlLines.push(`    - ${macro}`)
+                yamlLines.push(`    - ${macro}`);
             });
         }
 
@@ -9234,7 +9276,7 @@ class ProjectExcSourceModifier implements ModifiableYamlConfigProvider {
                 if (targetName == prj.getCurrentTarget()) {
                     excludeList = prj.GetConfiguration().config.excludeList;
                 } else {
-                    let target = prj.GetConfiguration().config.targets[targetName];
+                    const target = prj.GetConfiguration().config.targets[targetName];
                     if (target)
                         excludeList = target.excludeList;
                 }

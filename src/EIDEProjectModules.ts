@@ -42,11 +42,11 @@ import { GlobalEvent } from "./GlobalEvents";
 import { ExceptionToMessage, newMessage } from "./Message";
 import { ToolchainName, IToolchian, ToolchainManager } from './ToolchainManager';
 import {
-    HexUploaderType, STLinkOptions, STVPFlasherOptions, 
+    HexUploaderType, STLinkOptions, STVPFlasherOptions,
     StcgalFlashOption, JLinkOptions, JLinkProtocolType,
     PyOCDFlashOptions, OpenOCDFlashOptions, STLinkProtocolType,
     ProbeRSFlashOptions,
-    CustomFlashOptions 
+    CustomFlashOptions
 } from "./HexUploader";
 import { AbstractProject } from "./EIDEProject";
 import { SettingManager } from "./SettingManager";
@@ -286,7 +286,7 @@ export abstract class ConfigModel<DataType> {
                         case 'INPUT_INTEGER':
                             if (val) {
                                 const num = parseInt(val.trim());
-                                if (num !== NaN) {
+                                if (!isNaN(num)) {
                                     this.SetKeyValue(key, num);
                                 }
                             }
@@ -479,7 +479,7 @@ export abstract class CompileConfigModel<T> extends ConfigModel<T> {
     getOptions(targetName?: string, toolchainName?: ToolchainName): BuilderOptions {
 
         const _targetName = targetName || this.prjConfigData.mode;
-        const _toolchain  = toolchainName || this.prjConfigData.toolchain;
+        const _toolchain = toolchainName || this.prjConfigData.toolchain;
 
         if (this.prjConfigData.targets[_targetName] == undefined) {
             return ToolchainManager.getInstance()
@@ -541,7 +541,7 @@ export function getRamRomName(item: ARMRamItem | ARMRomItem): string {
 }
 
 export function getRamRomRange(item: ARMRamItem | ARMRomItem): string {
-    return `0x${Number(item.mem.startAddr).toString(16).toUpperCase()} - 0x${(Number(item.mem.startAddr) + Number(item.mem.size)).toString(16).toUpperCase()}`
+    return `0x${Number(item.mem.startAddr).toString(16).toUpperCase()} - 0x${(Number(item.mem.startAddr) + Number(item.mem.size)).toString(16).toUpperCase()}`;
 }
 
 export interface ARMStorageLayout {
@@ -651,7 +651,7 @@ export abstract class ArmBaseCompileConfigModel
             this.data.cpuType = from_model.data.cpuType;
         } else { // not found, set default
             this.data.cpuType = 'Cortex-M3';
-            GlobalEvent.emit('msg', newMessage('Warning', 
+            GlobalEvent.emit('msg', newMessage('Warning',
                 `This toolchain not support "${from_model.data.cpuType}". Use default value.`));
         }
 
@@ -876,9 +876,9 @@ export abstract class ArmBaseCompileConfigModel
                     } else {
                         if (ArmCpuUtils.isArmArchName(name)) { // for arch
                             let descp = '';
-                            let family = ArmCpuUtils.getArchFamily(name);
+                            const family = ArmCpuUtils.getArchFamily(name);
                             if (family) descp += family + ', ';
-                            let cpus = ArmCpuUtils.getArchExampleCpus(name);
+                            const cpus = ArmCpuUtils.getArchExampleCpus(name);
                             if (cpus) descp += 'like: ' + cpus.join(',') + '...';
                             res.push({
                                 label: name,
@@ -2678,11 +2678,11 @@ class PyOCDUploadModel extends UploadConfigModel<PyOCDFlashOptions> {
     protected redirectEmptyQuickPick = (key: string) => {
         switch (key) {
             case 'targetName':
-                return 'INPUT'
+                return 'INPUT';
             default:
                 return undefined;
         }
-    }
+    };
 
     protected GetSelectionList(key: string): CompileConfigPickItem[] | undefined {
         switch (key) {
@@ -2942,12 +2942,12 @@ class ProbeRSUploadModel extends UploadConfigModel<ProbeRSFlashOptions> {
 
     protected GetSelectionList(key: string): CompileConfigPickItem[] | undefined {
         switch (key) {
-            case 'target': 
+            case 'target':
                 return utility.probers_listchips().map(inf => {
                     return {
                         label: inf.name,
                         description: inf.series
-                    }
+                    };
                 });
             case 'protocol':
                 return [

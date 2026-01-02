@@ -51,11 +51,11 @@ export const TIME_ONE_DAY = 24 * 3600 * 1000;
 
 export function parseCliArgs(cliStr: string): string[] {
 
-    let argsLi: string[] = [];
+    const argsLi: string[] = [];
     let inQuote = false;
     let curArg = '';
 
-    for (let char_ of cliStr) {
+    for (const char_ of cliStr) {
         // is a "..." start or end
         if (char_ === '"' && (curArg.length === 0 || curArg[curArg.length - 1] !== '\\')) {
             if (inQuote) {
@@ -185,7 +185,7 @@ export function generateDotnetProgramCmd(programFile: File, args?: string[]): st
     // 在非 win32 平台上，使用 dotnet 命令去直接执行程序的本体.
     // 命令 "<my_program>.exe" 的等价替换是 "dotnet <my_program_dir>/<my_program>.dll"
     if (platform.osType() != 'win32') {
-        let dllpath = [programFile.dir, `${programFile.noSuffixName}.dll`].join('/');
+        const dllpath = [programFile.dir, `${programFile.noSuffixName}.dll`].join('/');
         let commandLine = `dotnet ${CmdLineHandler.quoteString(File.ToLocalPath(dllpath), '"')}`;
         args?.forEach(p => {
             commandLine += ' ' + CmdLineHandler.quoteString(p, '"');
@@ -406,12 +406,12 @@ export function makeTextTable(rows: string[][], headerLines?: string[]): string[
     for (let index = 1; index < rows.length; index++) {
         const row = rows[index];
         for (let colIdx = 0; colIdx < colSize; colIdx++) {
-            let maxLen = colMaxLenList[colIdx];
+            const maxLen = colMaxLenList[colIdx];
             colMaxLenList[colIdx] = row[colIdx].length > maxLen ? row[colIdx].length : maxLen;
         }
     }
 
-    let outputLines: string[] = headerLines || [];
+    const outputLines: string[] = headerLines || [];
 
     // make header
     {
@@ -846,42 +846,43 @@ export function formatPath(path: string): string {
 
 export async function downloadFile(url: string): Promise<Buffer | Error | undefined> {
 
-    return new Promise(async (resolve) => {
+    return new Promise((resolve) => {
+        (async () => {
+            let locked = false;
+            const resolveIf = (data: Error | Buffer | undefined) => {
+                if (!locked) {
+                    locked = true;
+                    resolve(data);
+                }
+            };
 
-        let locked = false;
-        const resolveIf = (data: Error | Buffer | undefined) => {
-            if (!locked) {
-                locked = true;
-                resolve(data);
+            const netReq = new NetRequest();
+
+            netReq.on('error', (err) => {
+                resolveIf(err);
+            });
+
+            // parse path
+            const urlParts = url.replace('https://', '').split('/');
+            const hostName = urlParts[0];
+            const path = '/' + urlParts.slice(1).join('/');
+
+            const res = await netReq.RequestBinary<any>({
+                host: hostName,
+                path: path,
+                headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' })
+            }, 'https');
+
+            let result: Buffer | Error | undefined;
+
+            if (res.success && res.content) { // received ok
+                result = res.content;
+            } else {
+                result = new Error(`Download file failed !, https code: ${res.statusCode}, msg: ${res.msg}`);
             }
-        };
 
-        const netReq = new NetRequest();
-
-        netReq.on('error', (err) => {
-            resolveIf(err);
-        });
-
-        // parse path
-        const urlParts = url.replace('https://', '').split('/');
-        const hostName = urlParts[0];
-        const path = '/' + urlParts.slice(1).join('/');
-
-        const res = await netReq.RequestBinary<any>({
-            host: hostName,
-            path: path,
-            headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' })
-        }, 'https');
-
-        let result: Buffer | Error | undefined;
-
-        if (res.success && res.content) { // received ok
-            result = res.content;
-        } else {
-            result = new Error(`Download file failed !, https code: ${res.statusCode}, msg: ${res.msg}`);
-        }
-
-        resolveIf(result);
+            resolveIf(result);
+        })();
     });
 }
 
@@ -891,99 +892,101 @@ export function isVersionString(str: string): boolean {
 
 export async function requestTxt(url: string): Promise<string | Error | undefined> {
 
-    return new Promise(async (resolve) => {
+    return new Promise((resolve) => {
+        (async () => {
+            let locked = false;
+            const resolveIf = (data: string | Error | undefined) => {
+                if (!locked) {
+                    locked = true;
+                    resolve(data);
+                }
+            };
 
-        let locked = false;
-        const resolveIf = (data: string | Error | undefined) => {
-            if (!locked) {
-                locked = true;
-                resolve(data);
+            const netReq = new NetRequest();
+
+            netReq.on('error', (err) => {
+                resolveIf(err);
+            });
+
+            // parse path
+            const urlParts = url.replace('https://', '').split('/');
+            const hostName = urlParts[0];
+            const path = '/' + urlParts.slice(1).join('/');
+
+            const res = await netReq.RequestTxt<any>({
+                host: hostName,
+                path: path,
+                headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' })
+            }, 'https');
+
+            let result: string | Error | undefined;
+
+            if (res.success && res.content) { // received ok
+                result = res.content;
+            } else {
+                result = new Error(`Request failed !, https errCode: ${res.statusCode}, msg: ${res.msg}`);
             }
-        };
 
-        const netReq = new NetRequest();
-
-        netReq.on('error', (err) => {
-            resolveIf(err);
-        });
-
-        // parse path
-        const urlParts = url.replace('https://', '').split('/');
-        const hostName = urlParts[0];
-        const path = '/' + urlParts.slice(1).join('/');
-
-        const res = await netReq.RequestTxt<any>({
-            host: hostName,
-            path: path,
-            headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' })
-        }, 'https');
-
-        let result: string | Error | undefined;
-
-        if (res.success && res.content) { // received ok
-            result = res.content;
-        } else {
-            result = new Error(`Request failed !, https errCode: ${res.statusCode}, msg: ${res.msg}`);
-        }
-
-        resolveIf(result);
+            resolveIf(result);
+        })();
     });
 }
 
 export async function downloadFileWithProgress(url: string, fileLable: string,
     progress: vscode.Progress<{ message?: string; increment?: number }>, token: vscode.CancellationToken): Promise<Buffer | Error | undefined> {
 
-    return new Promise(async (resolve) => {
+    return new Promise((resolve) => {
+        (async () => {
+            let locked = false;
+            const resolveIf = (data: Error | Buffer | undefined) => {
+                if (!locked) {
+                    locked = true;
+                    resolve(data);
+                }
+            };
 
-        let locked = false;
-        const resolveIf = (data: Error | Buffer | undefined) => {
-            if (!locked) {
-                locked = true;
-                resolve(data);
-            }
-        };
+            const netReq = new NetRequest();
 
-        const netReq = new NetRequest();
-
-        netReq.on('error', (err) => {
-            resolveIf(err);
-        });
-
-        token.onCancellationRequested(() => {
-            netReq.emit('abort');
-            resolveIf(undefined);
-        });
-
-        // parse path
-        const urlParts = url.replace('https://', '').split('/');
-        const hostName = urlParts[0];
-        const path = '/' + urlParts.slice(1).join('/');
-
-        let curIncrement: number = 0;
-
-        const res = await netReq.RequestBinary<any>({
-            host: hostName,
-            path: path,
-            headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' }),
-            rejectUnauthorized: true
-        }, 'https', (increment) => {
-            curIncrement += increment;
-            if (curIncrement > 1) { curIncrement = 1; } // limit to 100 %
-            progress.report({
-                increment: increment * 100,
-                message: `${(curIncrement * 100).toFixed(1)}% of '${fileLable}'`
+            netReq.on('error', (err) => {
+                resolveIf(err);
             });
-        });
 
-        let result: Buffer | Error | undefined;
+            token.onCancellationRequested(() => {
+                netReq.emit('abort');
+                resolveIf(undefined);
+            });
 
-        if (res.success && res.content) { // received ok
-            result = res.content;
-        } else if (token.isCancellationRequested === false) {
-            result = new Error(`Download file failed !, https code: ${res.statusCode}, msg: ${res.msg}`);
-        }
+            // parse path
+            const urlParts = url.replace('https://', '').split('/');
+            const hostName = urlParts[0];
+            const path = '/' + urlParts.slice(1).join('/');
 
-        resolveIf(result);
+            let curIncrement: number = 0;
+
+            const res = await netReq.RequestBinary<any>({
+                host: hostName,
+                path: path,
+                headers: setProxyHeader({ 'User-Agent': 'Mozilla/5.0' }),
+                rejectUnauthorized: true
+            }, 'https', (increment) => {
+                curIncrement += increment;
+                if (curIncrement > 1) { curIncrement = 1; } // limit to 100 %
+                progress.report({
+                    increment: increment * 100,
+                    message: `${(curIncrement * 100).toFixed(1)}% of '${fileLable}'`
+                });
+            });
+
+            let result: Buffer | Error | undefined;
+
+            if (res.success && res.content) { // received ok
+                result = res.content;
+            } else if (token.isCancellationRequested === false) {
+                result = new Error(`Download file failed !, https code: ${res.statusCode}, msg: ${res.msg}`);
+            }
+
+            resolveIf(result);
+        })();
     });
 }
 
@@ -1130,7 +1133,7 @@ export function ToJsonStringExclude(obj: any, excludeList?: string[], indent?: s
 
         if (key == '' && excludeList && excludeList.length > 0) {
 
-            let newVal = JSON.parse(JSON.stringify(val));
+            const newVal = JSON.parse(JSON.stringify(val));
 
             for (const rKey of excludeList) {
                 newVal[rKey] = undefined;

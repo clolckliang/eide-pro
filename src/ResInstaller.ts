@@ -69,11 +69,11 @@ export interface ExternalToolInfo {
     url?: string;
     bin_dir?: string;
     zip_type?: string;
-};
+}
 
 export interface UtilToolInfo extends ExternalToolInfo {
     id: ExternalToolName;
-};
+}
 
 interface ToolPlatformInfo {
 
@@ -94,7 +94,7 @@ interface ToolPlatformInfo {
             [arch: string]: string;
         };
     }
-};
+}
 
 export class ResInstaller {
 
@@ -420,7 +420,7 @@ export class ResInstaller {
         if (toolInfo.use_external_index) {
             resourceFile = File.fromArray([os.tmpdir(), `${resourceName}.${toolInfo.zip_type}`]);
         } else {
-            resourceFile = File.fromArray([os.tmpdir(), `${resourceName}.${toolInfo.zip_type || '7z'}`])
+            resourceFile = File.fromArray([os.tmpdir(), `${resourceName}.${toolInfo.zip_type || '7z'}`]);
         }
 
         try {
@@ -473,101 +473,91 @@ export class ResInstaller {
                     location: vscode.ProgressLocation.Notification,
                     title: `Installing package '${resourceName}'`,
                     cancellable: true
-                }, (progress, cancel): Promise<boolean> => {
+                }, async (progress, cancel): Promise<boolean> => {
 
-                    return new Promise(async (resolve_) => {
+                    const resManager = ResManager.GetInstance();
+                    const unzipper = new SevenZipper(resManager.Get7zDir());
+                    const outDir = File.fromArray([resManager.getEideToolsInstallDir(), resourceName]);
 
-                        let __locked__ = false;
-                        const resolveIf = (data: any) => {
-                            if (!__locked__) {
-                                __locked__ = true;
-                                resolve_(data);
-                            }
-                        };
+                    platform.DeleteAllChildren(outDir);
+                    outDir.CreateDir(true);
 
-                        const resManager = ResManager.GetInstance();
-                        const unzipper = new SevenZipper(resManager.Get7zDir());
-                        const outDir = File.fromArray([resManager.getEideToolsInstallDir(), resourceName]);
+                    progress.report({ message: `Unzipping ...` });
 
-                        platform.DeleteAllChildren(outDir);
-                        outDir.CreateDir(true);
-
-                        progress.report({ message: `Unzipping ...` });
-
-                        cancel.onCancellationRequested(_ => {
-                            progress.report({ message: `Canceling ...` });
-                        });
-
-                        unzipper.on('progress', (progressNum, msg) => {
-                            if (msg) {
-                                progress.report({ message: `Unzipping '${msg}'` });
-                            }
-                        });
-
-                        const unzipErr = await unzipper.Unzip(resourceFile, outDir);
-                        if (unzipErr) {
-                            GlobalEvent.emit('msg', ExceptionToMessage(unzipErr, 'Warning'));
-                            resolveIf(false);
-                            return;
-                        }
-
-                        if (cancel.isCancellationRequested) {
-                            resolveIf(false);
-                            return;
-                        }
-
-                        progress.report({ message: `Unzipped done !, installing ...` });
-
-                        // set bin dir
-                        if (toolInfo.bin_dir) {
-                            const BIN_PATH_FILE = File.fromArray([outDir.path, 'BIN_PATH']);
-                            BIN_PATH_FILE.Write(`${toolInfo.bin_dir}`);
-                        }
-
-                        // run post install cmd
-                        if (toolInfo.postInstallCmd) {
-
-                            const command = toolInfo.postInstallCmd();
-                            if (command) {
-                                progress.report({ message: `Running post-install cmd: '${command}' ...` });
-                                const done = await utility.execInternalCommand(command, outDir.path, cancel);
-                                if (!done) {
-
-                                    if (cancel.isCancellationRequested) {
-                                        GlobalEvent.emit('globalLog.append', `\n----- user canceled -----\n`);
-                                        GlobalEvent.emit('msg', newMessage('Info', `Installation has been canceled !`));
-                                    } else {
-                                        GlobalEvent.emit('msg', newMessage('Warning', `Install failed, see detail in 'eide.log' !`));
-                                    }
-
-                                    resolveIf(false);
-                                    return;
-                                }
-                            }
-                        }
-
-                        // update eide settings
-                        if (toolInfo.setting_name) {
-                            let setting_val = ['${userHome}', '.eide', 'tools', resourceName].join(File.sep);
-                            setting_val = toolInfo.resource_repath_in_pack ? `${setting_val}/${toolInfo.resource_repath_in_pack}` : setting_val;
-                            SettingManager.GetInstance().setConfigValue(toolInfo.setting_name, File.ToUnixPath(setting_val));
-                        }
-
-                        // install drivers if we need
-                        if (toolInfo.getDrvInstaller) {
-                            let drvExePath = toolInfo.getDrvInstaller();
-                            if (drvExePath) {
-                                const ok = await utility.execInternalCommand(`start "win32 driver: ${resourceName}" ".\\${drvExePath}"`, outDir.path);
-                                GlobalEvent.emit('globalLog.append', `\n=== install win32 driver '${drvExePath}' ${ok ? 'done' : 'failed'} ===\n\n`);
-                            }
-                        }
-
-                        /* notify */
-                        progress.report({ message: `'${resourceName}' installed done !` });
-
-                        /* return it with delay */
-                        setTimeout(() => resolveIf(true), 1500);
+                    const cancellationListener = cancel.onCancellationRequested(_ => {
+                        progress.report({ message: `Canceling ...` });
                     });
+
+                    unzipper.on('progress', (progressNum, msg) => {
+                        if (msg) {
+                            progress.report({ message: `Unzipping '${msg}'` });
+                        }
+                    });
+
+                    const unzipErr = await unzipper.Unzip(resourceFile, outDir);
+
+                    cancellationListener.dispose();
+
+                    if (unzipErr) {
+                        GlobalEvent.emit('msg', ExceptionToMessage(unzipErr, 'Warning'));
+                        return false;
+                    }
+
+                    if (cancel.isCancellationRequested) {
+                        return false;
+                    }
+
+                    progress.report({ message: `Unzipped done !, installing ...` });
+
+                    // set bin dir
+                    if (toolInfo.bin_dir) {
+                        const BIN_PATH_FILE = File.fromArray([outDir.path, 'BIN_PATH']);
+                        BIN_PATH_FILE.Write(`${toolInfo.bin_dir}`);
+                    }
+
+                    // run post install cmd
+                    if (toolInfo.postInstallCmd) {
+
+                        const command = toolInfo.postInstallCmd();
+                        if (command) {
+                            progress.report({ message: `Running post-install cmd: '${command}' ...` });
+                            const done = await utility.execInternalCommand(command, outDir.path, cancel);
+                            if (!done) {
+
+                                if (cancel.isCancellationRequested) {
+                                    GlobalEvent.emit('globalLog.append', `\n----- user canceled -----\n`);
+                                    GlobalEvent.emit('msg', newMessage('Info', `Installation has been canceled !`));
+                                } else {
+                                    GlobalEvent.emit('msg', newMessage('Warning', `Install failed, see detail in 'eide.log' !`));
+                                }
+
+                                return false;
+                            }
+                        }
+                    }
+
+                    // update eide settings
+                    if (toolInfo.setting_name) {
+                        let setting_val = ['${userHome}', '.eide', 'tools', resourceName].join(File.sep);
+                        setting_val = toolInfo.resource_repath_in_pack ? `${setting_val}/${toolInfo.resource_repath_in_pack}` : setting_val;
+                        SettingManager.GetInstance().setConfigValue(toolInfo.setting_name, File.ToUnixPath(setting_val));
+                    }
+
+                    // install drivers if we need
+                    if (toolInfo.getDrvInstaller) {
+                        const drvExePath = toolInfo.getDrvInstaller();
+                        if (drvExePath) {
+                            const ok = await utility.execInternalCommand(`start "win32 driver: ${resourceName}" ".\\${drvExePath}"`, outDir.path);
+                            GlobalEvent.emit('globalLog.append', `\n=== install win32 driver '${drvExePath}' ${ok ? 'done' : 'failed'} ===\n\n`);
+                        }
+                    }
+
+                    /* notify */
+                    progress.report({ message: `'${resourceName}' installed done !` });
+
+                    /* return it with delay */
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    return true;
                 });
             }
 

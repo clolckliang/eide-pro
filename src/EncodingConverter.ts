@@ -115,7 +115,7 @@ export class EncodingConverter {
         return new Promise((resolve) => {
             const stream = fs.createReadStream(file.path);
             stream.on('readable', () => {
-                let bomHead: Buffer = stream.read(4);
+                const bomHead: Buffer = stream.read(4);
                 stream.close();
                 resolve(EncodingConverter.getCodeType(bomHead));
             });

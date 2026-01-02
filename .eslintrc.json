@@ -1,0 +1,69 @@
+{
+    "root": true,
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+        "ecmaVersion": 2020,
+        "sourceType": "module",
+        "project": "./tsconfig.json"
+    },
+    "plugins": [
+        "@typescript-eslint"
+    ],
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended"
+    ],
+    "rules": {
+        "no-throw-literal": "warn",
+        "no-unused-expressions": "off",
+        "@typescript-eslint/no-unused-expressions": "off",
+        "no-redeclare": "off",
+        "@typescript-eslint/no-redeclare": [
+            "warn"
+        ],
+        "curly": "off",
+        "@typescript-eslint/naming-convention": "off",
+        "semi": [
+            "warn",
+            "always"
+        ],
+        "eqeqeq": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unused-vars": [
+            "warn",
+            {
+                "args": "none",
+                "vars": "all",
+                "varsIgnorePattern": "^_",
+                "caughtErrors": "none"
+            }
+        ],
+        "@typescript-eslint/no-inferrable-types": "off",
+        "@typescript-eslint/no-empty-function": "off",
+        "@typescript-eslint/no-var-requires": "off",
+        "@typescript-eslint/no-require-imports": "off",
+        "@typescript-eslint/no-namespace": "off",
+        "@typescript-eslint/ban-types": "off",
+        "@typescript-eslint/no-empty-interface": "off",
+        "@typescript-eslint/ban-ts-comment": "off",
+        "no-async-promise-executor": "warn",
+        "prefer-const": "warn",
+        "no-prototype-builtins": "off",
+        "no-case-declarations": "off",
+        "no-useless-escape": "off",
+        "no-empty": "off",
+        "@typescript-eslint/no-unnecessary-type-constraint": "off",
+        "@typescript-eslint/no-empty-object-type": "off",
+        "no-constant-condition": "off",
+        "no-fallthrough": "off",
+        "no-control-regex": "off",
+        "use-isnan": "warn",
+        "no-useless-catch": "off"
+    },
+    "ignorePatterns": [
+        "out",
+        "dist",
+        "node_modules",
+        "**/*.d.ts"
+    ]
+}

@@ -384,7 +384,7 @@ export class ToolchainManager {
                     if (utility.isGccFamilyToolchain(toolchain.name) && curOption.linker && typeof curOption.linker['LD_FLAGS'] == 'string') {
                         const specsOpts = curOption.linker['LD_FLAGS'].match(/--specs=[^\s]+/g);
                         if (specsOpts && specsOpts.length > 0) {
-                            let optstr = specsOpts.join(' ');
+                            const optstr = specsOpts.join(' ');
                             // move to global region
                             if (curOption.global == undefined) curOption.global = {};
                             if (curOption.global['misc-control']) {
@@ -598,7 +598,7 @@ class KeilC51 implements IToolchian {
             sections: secList,
             objDic: objDic
         };
-    };
+    }
 
     parseMapFile(mapPath: string): string[] | Error {
 
@@ -623,8 +623,8 @@ class KeilC51 implements IToolchian {
         header = header.concat(secList);
         tableRows.push(header);
 
-        let objTotalSize: any = { new: 0, old: 0 };
-        let secTotalSize: any = {};
+        const objTotalSize: any = { new: 0, old: 0 };
+        const secTotalSize: any = {};
         for (const objpath in objDic) {
 
             const objInfo = objDic[objpath];
@@ -665,7 +665,7 @@ class KeilC51 implements IToolchian {
                         new: 0,
                         old: 0
                     };
-                };
+                }
 
                 secTotalSize[sec].new += nowSecSize;
                 secTotalSize[sec].old += oldSecSize;
@@ -832,8 +832,8 @@ class SDCC implements IToolchian {
     preHandleOptions(prjInfo: IProjectInfo, options: BuilderOptions): void {
 
         /* init default */
-        if (options["linker"] == undefined) { options["linker"] = {} }
-        if (options["asm-compiler"] == undefined) { options["asm-compiler"] = {} }
+        if (options["linker"] == undefined) { options["linker"] = {}; }
+        if (options["asm-compiler"] == undefined) { options["asm-compiler"] = {}; }
 
         /* convert output format */
         if (options['linker']['output-format']) {
@@ -906,7 +906,7 @@ class SDCC implements IToolchian {
             sections: secList,
             objDic: objDic
         };
-    };
+    }
 
     parseMapFile(mapPath: string): string[] | Error {
 
@@ -931,8 +931,8 @@ class SDCC implements IToolchian {
         header = header.concat(secList);
         tableRows.push(header);
 
-        let objTotalSize: any = { new: 0, old: 0 };
-        let secTotalSize: any = {};
+        const objTotalSize: any = { new: 0, old: 0 };
+        const secTotalSize: any = {};
         for (const objpath in objDic) {
 
             const objInfo = objDic[objpath];
@@ -968,7 +968,7 @@ class SDCC implements IToolchian {
                         new: 0,
                         old: 0
                     };
-                };
+                }
 
                 secTotalSize[sec].new += nowSecSize;
                 secTotalSize[sec].old += oldSecSize;
@@ -1209,9 +1209,9 @@ class GNU_SDCC_MCS51 implements IToolchian {
 
         /* init default */
         if (options["linker"] == undefined)
-            options["linker"] = {}
+            options["linker"] = {};
         if (options["asm-compiler"] == undefined)
-            options["asm-compiler"] = {}
+            options["asm-compiler"] = {};
 
         /* convert output format */
         if (options['linker'] && options['linker']['output-format'] === 'lib') {
@@ -1360,9 +1360,9 @@ class COSMIC_STM8 implements IToolchian {
     preHandleOptions(prjInfo: IProjectInfo, options: BuilderOptions): void {
 
         /* init default */
-        if (options["global"] == undefined) { options["global"] = {} }
-        if (options["linker"] == undefined) { options["linker"] = {} }
-        if (options["asm-compiler"] == undefined) { options["asm-compiler"] = {} }
+        if (options["global"] == undefined) { options["global"] = {}; }
+        if (options["linker"] == undefined) { options["linker"] = {}; }
+        if (options["asm-compiler"] == undefined) { options["asm-compiler"] = {}; }
 
         /* setup cxstm8 cfg */
         options['global']['cxstm8-config'] = `"${ResManager.instance().GetAppDataDir().path + File.sep + 'cxstm8.cfg'}"`;
@@ -1377,7 +1377,7 @@ class COSMIC_STM8 implements IToolchian {
 
             let model_suffix = '';
             let codes_suffix = '';
-            let model_option = options["global"]['model'] || 'small';
+            const model_option = options["global"]['model'] || 'small';
 
             // for more informations, see CXSTM8_UsersGuide.pdf, page 303
             switch (model_option) {
@@ -1528,7 +1528,7 @@ class COSMIC_STM8 implements IToolchian {
             objects: objDic,
             messages: []
         };
-    };
+    }
 
     parseMapFile(mapPath: string): string[] | Error {
 
@@ -1569,10 +1569,10 @@ class COSMIC_STM8 implements IToolchian {
             for (const sec in obj)
                 size += obj[sec];
             return size == 0;
-        }
+        };
 
-        let objTotalSize: any = { new: 0, old: 0 };
-        let secTotalSize: any = {};
+        const objTotalSize: any = { new: 0, old: 0 };
+        const secTotalSize: any = {};
         for (const objpath in objDic) {
 
             const objInfo = objDic[objpath];
@@ -1613,7 +1613,7 @@ class COSMIC_STM8 implements IToolchian {
                         new: 0,
                         old: 0
                     };
-                };
+                }
 
                 secTotalSize[sec].new += nowSecSize;
                 secTotalSize[sec].old += oldSecSize;
@@ -1656,9 +1656,9 @@ class COSMIC_STM8 implements IToolchian {
                     total_new += secTotalSize[sec].new;
                     total_old += secTotalSize[sec].old;
                     if (sect_text)
-                        sect_text += ` + ${sec}`
+                        sect_text += ` + ${sec}`;
                     else
-                        sect_text = sec
+                        sect_text = sec;
                 }
             }
             const diff = total_new - total_old;
@@ -1765,7 +1765,7 @@ class AC5 implements IToolchian {
         // global.microcontroller-cpu.enum
         const mcpu_cmd = modelData['global']['microcontroller-cpu'].command || '';
         const mcpus = modelData['global']['microcontroller-cpu'].enum;
-        for (let k in mcpus) {
+        for (const k in mcpus) {
             this.mcpuMap[k] = mcpu_cmd + mcpus[k];
         }
     }
@@ -1891,7 +1891,7 @@ class AC5 implements IToolchian {
 
         let toolSearchLoc = this.getToolchainDir().path;
         if (platform.osType() != 'win32') {
-            toolSearchLoc = `${toolSearchLoc}/share/armcc`
+            toolSearchLoc = `${toolSearchLoc}/share/armcc`;
         }
 
         const incDir = File.fromArray([toolSearchLoc, 'include']);
@@ -1967,7 +1967,7 @@ class AC6 implements IToolchian {
         const mcpus = modelData['global']['microcontroller-cpu'].enum;
         const mfpus = modelData['global']['microcontroller-fpu'].command;
         const fabis = modelData['global']['microcontroller-float'].command;
-        for (let k in mcpus) {
+        for (const k in mcpus) {
             this.mcpuMap[k] = mcpu_cmd + mcpus[k];
             this.mfpuMap[k] = mfpus[k];
             this.fabiMap[k] = fabis[k];
@@ -2135,7 +2135,7 @@ class AC6 implements IToolchian {
 
         let toolSearchLoc = this.getToolchainDir().path;
         if (platform.osType() != 'win32') {
-            toolSearchLoc = `${toolSearchLoc}/share/armclang`
+            toolSearchLoc = `${toolSearchLoc}/share/armclang`;
         }
 
         return [
@@ -2218,7 +2218,7 @@ class GCC implements IToolchian {
         const mcpus = modelData['global']['microcontroller-cpu'].enum;
         const mfpus = modelData['global']['microcontroller-fpu'].command;
         const fabis = modelData['global']['microcontroller-float'].command;
-        for (let k in mcpus) {
+        for (const k in mcpus) {
             this.mcpuMap[k] = mcpu_cmd + mcpus[k];
             this.mfpuMap[k] = mfpus[k];
             this.fabiMap[k] = fabis[k];
@@ -2533,7 +2533,7 @@ class IARARM implements IToolchian {
 
         const iarPath = this.getToolchainDir().path;
 
-        let result: string[] = [
+        const result: string[] = [
             File.fromArray([iarPath, 'inc']).path,
             File.fromArray([iarPath, 'inc', 'c']).path,
             File.fromArray([iarPath, 'lib']).path
@@ -2633,7 +2633,7 @@ class LLVM_ARM implements IToolchian {
         const mcpus = modelData['global']['microcontroller-cpu'].enum;
         const mfpus = modelData['global']['microcontroller-fpu'].command;
         const fabis = modelData['global']['microcontroller-float'].command;
-        for (let k in mcpus) {
+        for (const k in mcpus) {
             this.mcpuMap[k] = mcpu_cmd + mcpus[k];
             this.mfpuMap[k] = mfpus[k];
             this.fabiMap[k] = fabis[k];
@@ -2782,7 +2782,7 @@ class LLVM_ARM implements IToolchian {
         let input_offset = -1;
         let cur_section = undefined;
 
-        for (let line of lines) {
+        for (const line of lines) {
             if (section_offset > 0) {
                 if (line.charAt(section_offset) == '.') { // is a section ?
                     const sec_name = line.substring(section_offset).trim();
@@ -2865,7 +2865,7 @@ class LLVM_ARM implements IToolchian {
             '.data': 1,
             '.bss': 2
         };
-        let final_sections = sections.sort((a, b) => {
+        const final_sections = sections.sort((a, b) => {
             const order_a = orders[a] == undefined ? 100 : orders[a];
             const order_b = orders[b] == undefined ? 100 : orders[b];
             return order_a - order_b;
@@ -2917,10 +2917,10 @@ class LLVM_ARM implements IToolchian {
             for (const sec in obj)
                 size += obj[sec];
             return size == 0;
-        }
+        };
 
-        let objTotalSize: any = { new: 0, old: 0 };
-        let secTotalSize: any = {};
+        const objTotalSize: any = { new: 0, old: 0 };
+        const secTotalSize: any = {};
         for (const objpath in objDic) {
 
             const objInfo = objDic[objpath];
@@ -2961,7 +2961,7 @@ class LLVM_ARM implements IToolchian {
                         new: 0,
                         old: 0
                     };
-                };
+                }
 
                 secTotalSize[sec].new += nowSecSize;
                 secTotalSize[sec].old += oldSecSize;
@@ -3004,9 +3004,9 @@ class LLVM_ARM implements IToolchian {
                     total_new += secTotalSize[sec].new;
                     total_old += secTotalSize[sec].old;
                     if (sect_text)
-                        sect_text += ` + ${sec}`
+                        sect_text += ` + ${sec}`;
                     else
-                        sect_text = sec
+                        sect_text = sec;
                 }
             }
             const diff = total_new - total_old;

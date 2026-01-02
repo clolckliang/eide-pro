@@ -153,9 +153,9 @@ export abstract class KeilParser<T> {
         let curSubStr: string = '';
         for (let index = 0; index < macroStr.length; index++) {
 
-            let prevChar = index > 0 ? macroStr[index - 1] : '';
+            const prevChar = index > 0 ? macroStr[index - 1] : '';
             let curChar = macroStr[index];
-            let nxtSubStr = macroStr.substr(index + 1);
+            const nxtSubStr = macroStr.substr(index + 1);
 
             // 处理宏定义中的字符串
             if (curChar === '"' || curChar === '\'') {
@@ -783,7 +783,7 @@ export class ARMParser extends KeilParser<KeilARMOption> {
                 const beforeMake = commonOption.BeforeMake;
                 if (beforeMake) {
                     for (let idx = 1; idx < 3; idx++) {
-                        let cmd = beforeMake[`UserProg${idx}Name`];
+                        const cmd = beforeMake[`UserProg${idx}Name`];
                         if (cmd) {
                             eideOption.beforeBuildTasks.push({
                                 "name": cmd,
@@ -801,7 +801,7 @@ export class ARMParser extends KeilParser<KeilARMOption> {
                     let total_cnt = 0;
                     let actived_cnt = 0;
                     for (let idx = 1; idx < 3; idx++) {
-                        let cmd = afterMake[`UserProg${idx}Name`];
+                        const cmd = afterMake[`UserProg${idx}Name`];
                         if (cmd) {
                             total_cnt++;
                             const actived = afterMake[`RunUserProg${idx}`] == '1';

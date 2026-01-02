@@ -494,7 +494,7 @@ async function checkAndInstallBinaries(forceInstall?: boolean): Promise<boolean>
 
     // !! for compatibility with offline-package !!
     // if we found eide binaries in plug-in root folder, move it 
-    const builtInBinFolder = File.fromArray([resManager.getAppRootFolder().path, 'bin'])
+    const builtInBinFolder = File.fromArray([resManager.getAppRootFolder().path, 'bin']);
     if (checkBinFolder(builtInBinFolder)) {
         if (os.platform() == 'win32') {
             ChildProcess.execSync(`xcopy "${builtInBinFolder.path}" "${binFolder.path}\\" /H /E /Y`);
@@ -785,7 +785,7 @@ async function tryInstallBinaries(binFolder: File, binVersion: string): Promise<
 
         /* del tmp file */
         if (tmpFile.IsFile()) {
-            try { fs.unlinkSync(tmpFile.path) } catch (error) { }
+            try { fs.unlinkSync(tmpFile.path); } catch (error) { }
         }
 
     } catch (error) {
@@ -903,7 +903,7 @@ function exportEnvToSysPath(context?: vscode.ExtensionContext) {
 
         if (!/^\w+$/.test(subDir.name)) return; // filter dir name
 
-        let binFolderPaths: string[] = [];
+        const binFolderPaths: string[] = [];
 
         // try get path from 'BIN_PATH' file
         const BIN_PATH_FILE = File.fromArray([subDir.path, 'BIN_PATH']);
@@ -1290,7 +1290,7 @@ function RegisterGlobalEvent() {
         if (prj_count == 1) {
             StatusBarManager.getInstance().foreach((bar, name) => {
                 bar.show();
-            })
+            });
         }
     });
 
@@ -1298,7 +1298,7 @@ function RegisterGlobalEvent() {
         if (prj_count == 0) {
             StatusBarManager.getInstance().foreach((bar, name) => {
                 bar.hide();
-            })
+            });
         }
     });
 }
@@ -1527,12 +1527,12 @@ class EideTerminalProvider implements vscode.TerminalProfileProvider {
         let shellPath: string;
 
         if (platform.osType() == 'win32') {
-            let f = ResManager.GetInstance().getPowerShell();
+            const f = ResManager.GetInstance().getPowerShell();
             if (f) {
                 shellName = 'powershell';
                 shellPath = f.path;
             } else {
-                let cmd = ResManager.GetInstance().getCMDPath();
+                const cmd = ResManager.GetInstance().getCMDPath();
                 if (cmd) {
                     shellName = 'cmd';
                     shellPath = cmd;
@@ -1619,14 +1619,14 @@ interface MapViewRef {
     treeDepth: number;
 
     mapPath: string;
-};
+}
 
 interface MapViewInfo {
 
     watcher: FileWatcher;
 
     refList: MapViewRef[];
-};
+}
 
 class MapViewEditorProvider implements vscode.CustomTextEditorProvider {
 
@@ -1761,7 +1761,7 @@ class MapViewEditorProvider implements vscode.CustomTextEditorProvider {
 
             const idx = mInfo.refList.findIndex((inf) => inf.uid == uid);
             if (idx != -1) {
-                delete mInfo.refList[idx].vscWebview;
+                (mInfo.refList[idx] as any).vscWebview = undefined;
                 mInfo.refList.splice(idx, 1);
             }
 
@@ -1820,7 +1820,7 @@ class MapViewEditorProvider implements vscode.CustomTextEditorProvider {
                         }
 
                         if (toolchain.parseMapFile) {
-                            let ret = toolchain.parseMapFile(vInfo.mapPath);
+                            const ret = toolchain.parseMapFile(vInfo.mapPath);
                             if (ret instanceof Error)
                                 throw ret;
                             else
@@ -2117,7 +2117,7 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
             }
             if (flasherCfg.otherCmds)
                 utility.parseCliArgs(flasherCfg.otherCmds)
-                    .forEach(s => cliArgs.push(s))
+                    .forEach(s => cliArgs.push(s));
             if (flasherCfg.speed) {
                 cliArgs.push('-f');
                 cliArgs.push(flasherCfg.speed);
@@ -2198,7 +2198,7 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
                 dbgCfg['speed'] = flasherCfg.speed;
             // parse '--probe VID:PID' or '--probe VID:PID:Serial'
             if (flasherCfg.otherOptions) {
-                let m = /--probe (\w+\:\w+(?:\:\w+)?)/.exec(flasherCfg.otherOptions);
+                const m = /--probe (\w+\:\w+(?:\:\w+)?)/.exec(flasherCfg.otherOptions);
                 if (m && m.length > 1) {
                     dbgCfg['probe'] = m[1];
                 }

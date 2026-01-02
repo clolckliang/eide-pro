@@ -1,25 +1,25 @@
 /*
-	MIT License
+    MIT License
 
-	Copyright (c) 2019 github0null
+    Copyright (c) 2019 github0null
 
-	Permission is hereby granted, free of charge, to any person obtaining a copy
-	of this software and associated documentation files (the "Software"), to deal
-	in the Software without restriction, including without limitation the rights
-	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-	copies of the Software, and to permit persons to whom the Software is
-	furnished to do so, subject to the following conditions:
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
 
-	The above copyright notice and this permission notice shall be included in all
-	copies or substantial portions of the Software.
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
 
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-	SOFTWARE.
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
 */
 
 import * as child_process from 'child_process';
@@ -170,7 +170,7 @@ export class PackageManager {
 
     SetDeviceInfo(name: string, core?: string): void {
 
-        for (let packInfo of this.packList) {
+        for (const packInfo of this.packList) {
             packInfo.familyList.forEach((family, findex) => {
 
                 for (let i = 0; i < family.deviceList.length; i++) {
@@ -267,7 +267,7 @@ export class PackageManager {
     }
 
     private ChangeCurrentDevice(dev?: CurrentDevice): void {
-        let oledDevice = this.currentDevice;
+        const oledDevice = this.currentDevice;
         this.currentDevice = dev;
         if (dev) {
             this._refreshComponents(dev);
@@ -325,8 +325,8 @@ export class PackageManager {
         }
     }
 
-    private _checkConditionGroup(gMap: ConditionMap, 
-        cGroup: ConditionGroup, cDev: CurrentDevice, 
+    private _checkConditionGroup(gMap: ConditionMap,
+        cGroup: ConditionGroup, cDev: CurrentDevice,
         comp_requires: string[], toolchain?: IToolchian): void {
 
         const familyInfo = cDev.packInfo.familyList[cDev.familyIndex];
@@ -491,7 +491,7 @@ export class PackageManager {
     }
 
     private _preHandleSubfamily(family: any) {
-        let _subFamilyList: any[] = [];
+        const _subFamilyList: any[] = [];
         for (const subFamily of (<any[]>family.subFamily)) {
 
             if (subFamily.processor && subFamily.processor.length > 1 &&
@@ -561,16 +561,16 @@ export class PackageManager {
         let guess_next_ram_id = 1;
         let guess_next_rom_id = 1;
 
-        for (let mem of memObj) {
+        for (const mem of memObj) {
 
-            let mAc = mem.$access || '';
-            let mId = mem.$id || mem.$name || '';
-            let mNa = mem.$name || '';
+            const mAc = mem.$access || '';
+            const mId = mem.$id || mem.$name || '';
+            const mNa = mem.$name || '';
 
             // RAM
             if (/rw[x]?/.test(mAc) || /RAM/.test(mId) || /RAM/.test(mNa)) {
 
-                let _mem: ARMRamItem = {
+                const _mem: ARMRamItem = {
                     tag: 'RAM',
                     id: -1,
                     mem: {
@@ -622,7 +622,7 @@ export class PackageManager {
             // ROM
             else {
 
-                let _mem: ARMRomItem = {
+                const _mem: ARMRomItem = {
                     tag: 'ROM',
                     id: -1,
                     mem: {
@@ -677,18 +677,17 @@ export class PackageManager {
 
         this.packList = [];
 
-        let pdscFile: File;
-        let fList = packDir.GetList([/.pdsc/i], File.EXCLUDE_ALL_FILTER);
+        const fList = packDir.GetList([/.pdsc/i], File.EXCLUDE_ALL_FILTER);
 
         if (fList.length === 0) {
             throw new Error('Not found \'.pdsc\' suffix file');
         }
 
-        pdscFile = fList[0];
+        const pdscFile = fList[0];
 
-        let doc: any = this.xmlParser.xml2js(pdscFile.Read());
-        let pack = doc.package;
-        let packInfo: PackInfo = {
+        const doc: any = this.xmlParser.xml2js(pdscFile.Read());
+        const pack = doc.package;
+        const packInfo: PackInfo = {
             vendor: pack.vendor,
             name: pack.name,
             familyList: [],
@@ -701,7 +700,7 @@ export class PackageManager {
         let _endianMode: string | undefined;
 
         const setDevDefine = (obj: any) => {
-            for (let def of (<any[]>obj.compile)) {
+            for (const def of (<any[]>obj.compile)) {
                 if (def.$define) {
                     _deviceDefine = def.$define;
                     return;
@@ -709,7 +708,7 @@ export class PackageManager {
             }
         };
 
-        for (let family of pack.devices.family) {
+        for (const family of pack.devices.family) {
 
             // set device define
             if (family.compile) {
@@ -726,7 +725,7 @@ export class PackageManager {
                 _svdPath = this.ToAbsolutePath(pdscFile, family.debug.$svd);
             }
 
-            let _famliy: DeviceFamily = {
+            const _famliy: DeviceFamily = {
                 name: family.$Dfamily,
                 vendor: family.$Dvendor,
                 core: family.processor ? family.processor[0].$Dcore : undefined,
@@ -760,7 +759,7 @@ export class PackageManager {
                         _svdPath = this.ToAbsolutePath(pdscFile, subFamily.debug.$svd);
                     }
 
-                    let _subFamily: SubFamily = {
+                    const _subFamily: SubFamily = {
                         name: subFamily.$DsubFamily,
                         core: subFamily.processor ? subFamily.processor.$Dcore : undefined,
                         deviceList: []
@@ -770,8 +769,8 @@ export class PackageManager {
                         _subFamily.description = subFamily.description;
 
                     // Series specific rom/ram
-                    let ramList: ARMRamItem[] = [];
-                    let romList: ARMRomItem[] = [];
+                    const ramList: ARMRamItem[] = [];
+                    const romList: ARMRomItem[] = [];
 
                     if (subFamily.memory) {
                         this.parseMemory(subFamily.memory, ramList, romList);
@@ -842,7 +841,7 @@ export class PackageManager {
                             _svdPath = this.ToAbsolutePath(pdscFile, device.debug.$svd);
                         }
 
-                        let dInfo: DeviceInfo = {
+                        const dInfo: DeviceInfo = {
                             name: device.$Dname,
                             devClassName: device.$DClassName || device.$Dname,
                             core: device.processor ? device.processor.$Dcore : undefined,
@@ -929,7 +928,7 @@ export class PackageManager {
                         _svdPath = this.ToAbsolutePath(pdscFile, device.debug.$svd);
                     }
 
-                    let dInfo: DeviceInfo = {
+                    const dInfo: DeviceInfo = {
                         name: device.$Dname,
                         devClassName: device.$DClassName || device.$Dname,
                         core: device.processor ? device.processor.$Dcore : undefined,
@@ -1016,7 +1015,7 @@ export class PackageManager {
             return component.$Cclass ? filterList.includes(component.$Cclass) : false;
         });
 
-        for (let component of componentList) {
+        for (const component of componentList) {
 
             const item: Component = {
                 groupName: this.makeComponentGroupName(component.$Cgroup, component.$Csub),
@@ -1076,7 +1075,7 @@ export class PackageManager {
         }
 
         if (pack.conditions && Array.isArray(pack.conditions.condition)) {
-            for (let condition of pack.conditions.condition) {
+            for (const condition of pack.conditions.condition) {
 
                 if (condition.$id) {
 
@@ -1086,7 +1085,7 @@ export class PackageManager {
                     };
 
                     if (condition.accept) {
-                        for (let accept of condition.accept) {
+                        for (const accept of condition.accept) {
 
                             const condition: Condition = {};
 
@@ -1118,7 +1117,7 @@ export class PackageManager {
                     }
 
                     if (condition.require) {
-                        for (let require of condition.require) {
+                        for (const require of condition.require) {
 
                             const condition: Condition = {};
 
@@ -1172,7 +1171,7 @@ export class PackageManager {
 
     FindComponent(groupName: string): Component | undefined {
         if (this.packList.length > 0) {
-            let index = this.packList[0].components.findIndex((val) => {
+            const index = this.packList[0].components.findIndex((val) => {
                 return val.enable && val.groupName === groupName;
             });
             if (index !== -1) {
@@ -1186,14 +1185,14 @@ export class PackageManager {
         if (this.packList.length > 0) {
             return this.packList[0].components.filter((comp) => {
                 if (!comp.enable)
-                    return false
+                    return false;
                 // case 1: matchName == 'A' and comp.groupName == 'A'
                 if (comp.groupName === matchName)
-                    return true
+                    return true;
                 // case 2: matchName == 'A' and comp.groupName == 'A.B.C'
                 if (comp.groupName.startsWith(matchName + '.'))
                     return true;
-                return false
+                return false;
             });
         }
         return undefined;

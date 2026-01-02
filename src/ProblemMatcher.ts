@@ -252,7 +252,7 @@ export function parseGccCompilerLog(projApi: ProjectBaseApi, logfile: File): Com
             break;
         case 'RISCV_GCC':
             problemSource = 'riscv-gcc';
-            break
+            break;
         default:
             break;
     }

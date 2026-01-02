@@ -1,14 +1,15 @@
 {
 	"compilerOptions": {
 		"module": "commonjs",
-		"target": "es6",
+		"target": "es2018",
 		"outDir": "out",
 		"lib": [
-			"es6"
+			"es2018"
 		],
 		"sourceMap": true,
 		//"rootDir": "./",
 		"strict": true, /* enable all strict type-checking options */
+		"useUnknownInCatchVariables": false,
 		"skipLibCheck": true /* skip type checking of declaration files */
 		/* Additional Checks */
 		// "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */

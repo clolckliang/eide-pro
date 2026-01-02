@@ -113,7 +113,7 @@ export class DependenceManager implements ManagerInterface {
         const item_filter = function (item: ComponentFileItem): boolean {
             return (item.attr != 'template')
                 && (item.condition ? packageManager.CheckCondition(item.condition, toolchain) : true);
-        }
+        };
 
         /* filter files */
         const asmList    = component.asmList.filter(item_filter);

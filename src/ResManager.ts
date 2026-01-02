@@ -38,7 +38,7 @@ import * as crypto from 'crypto';
 import { CPUInfo } from "./HexUploader";
 import { AbstractProject } from "./EIDEProject";
 import { SettingManager } from "./SettingManager";
-import * as utility from './utility'
+import * as utility from './utility';
 import { CmdLineHandler } from "./CmdLineHandler";
 import * as yaml from 'yaml';
 import { EncodingConverter } from "./EncodingConverter";
@@ -181,7 +181,7 @@ export class ResManager extends events.EventEmitter {
     }
 
     private InitIcons() {
-        let dir = this.dirMap.get('icon');
+        const dir = this.dirMap.get('icon');
         if (dir) {
             dir.GetList().forEach((f) => {
                 this.iconMap.set(f.name, f);
@@ -241,7 +241,7 @@ export class ResManager extends events.EventEmitter {
 
     setAppUsrData(key: string, val: any): void {
 
-        let data = this.getAppUsrData() || {};
+        const data = this.getAppUsrData() || {};
 
         data[key] = val;
 
@@ -282,7 +282,7 @@ export class ResManager extends events.EventEmitter {
     }
 
     GetIconByName(name: string): File {
-        let f = this.iconMap.get(name);
+        const f = this.iconMap.get(name);
 
         if (f === undefined) {
             throw new Error('Can\'t find icon file \'' + name + '\'');
@@ -592,9 +592,9 @@ export class ResManager extends events.EventEmitter {
         const cmd = utility.wrapCommand([jlinkExe, '-CommandFile', jlinkTmpCmdFile.path]);
 
         /* gen jlink internal device list to file */
-        try { fs.unlinkSync(devXmlFile.path) } catch (error) { /* do nothing */ }
-        try { ChildProcess.execSync(cmd) } catch (error) { /* do nothing */ }
-        try { fs.unlinkSync(jlinkTmpCmdFile.path) } catch (error) { /* do nothing */ } // rm tmp file
+        try { fs.unlinkSync(devXmlFile.path); } catch (error) { /* do nothing */ }
+        try { ChildProcess.execSync(cmd); } catch (error) { /* do nothing */ }
+        try { fs.unlinkSync(jlinkTmpCmdFile.path); } catch (error) { /* do nothing */ } // rm tmp file
         if (devXmlFile.IsFile()) { file = devXmlFile; }
 
         try {
@@ -612,7 +612,7 @@ export class ResManager extends events.EventEmitter {
 
             // rm tmp file
             if (devXmlFile.IsFile()) {
-                try { fs.unlinkSync(devXmlFile.path) } catch (error) { }
+                try { fs.unlinkSync(devXmlFile.path); } catch (error) { }
             }
 
             if (dom.DeviceDatabase == undefined) {

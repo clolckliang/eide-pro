@@ -77,7 +77,7 @@ import { SettingManager } from './SettingManager';
 import { ExeCmd } from '../lib/node-utility/Executable';
 import { jsonc } from 'jsonc';
 import * as iconv from 'iconv-lite';
-import * as globmatch from 'micromatch'
+import * as globmatch from 'micromatch';
 import { EventData, CurrentDevice, ArmBaseCompileConfigModel, ArmBaseCompileData } from './EIDEProjectModules';
 import * as FileLock from '../lib/node-utility/FileLock';
 import { CompilerCommandsDatabaseItem, CodeBuilder } from './CodeBuilder';
@@ -796,10 +796,10 @@ export interface SourceExtraCompilerOptionsCfg {
 export interface SourceFileOptions {
     version: string;
     options: { [target: string]: SourceExtraCompilerOptionsCfg };
-};
+}
 
 export type DataChangeType = 'pack' | 'dependence' | 'compiler' | 'uploader' | 'files';
-export const EIDE_FILE_OPTION_VERSION = '2.1'
+export const EIDE_FILE_OPTION_VERSION = '2.1';
 
 export abstract class AbstractProject implements CustomConfigurationProvider, ProjectBaseApi {
 
@@ -1266,7 +1266,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
                 if (source.disabled) continue; // skip disabled file
                 if (!filter.some((reg) => reg.test(source.file.path))) continue; // skip non-source
                 const rePath = this.ToRelativePath(source.file.path);
-                const fInfo: any = { path: rePath || source.file.path }
+                const fInfo: any = { path: rePath || source.file.path };
                 if (AbstractProject.isVirtualSourceGroup(group)) {
                     fInfo.virtualPath = `${group.name}/${source.file.name}`;
                 }
@@ -1476,7 +1476,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         }
     }
 
-    GetConfiguration<T>(): ProjectConfiguration<T> {
+    GetConfiguration<T extends BuilderConfigData>(): ProjectConfiguration<T> {
         return <ProjectConfiguration<T>>this.configMap.Get<ProjectConfigData<any>>(AbstractProject.prjConfigName);
     }
 
@@ -1651,7 +1651,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         return {
             name: targetName,
             isNew: isNewTarget,
-        }
+        };
     }
 
     getPrevToolchain(): IToolchian | undefined {
@@ -1770,7 +1770,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         return dupList;
     }
 
-    installCmsisSourceCodePack(pList: { name: string; zippath: string; exportIncs?: string[] } []) {
+    installCmsisSourceCodePack(pList: { name: string; zippath: string; exportIncs?: string[] }[]) {
 
         if (pList.length == 0) {
             return;
@@ -1972,11 +1972,11 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         let CC_OBJ_SUFFIX: string;
         try {
             const compiler = this.getToolchain();
-            let mname = compiler.modelName;
-            let fpath = `${ResManager.GetInstance().getBuilderModelsDir().path}/${mname}`;
-            let model = JSON.parse(fs.readFileSync(fpath).toString());
+            const mname = compiler.modelName;
+            const fpath = `${ResManager.GetInstance().getBuilderModelsDir().path}/${mname}`;
+            const model = JSON.parse(fs.readFileSync(fpath).toString());
             // linker
-            let mlink = model['groups']['linker-lib'];
+            const mlink = model['groups']['linker-lib'];
             if (mlink == undefined) {
                 throw new Error(`${mname}: model['groups']['linker-lib'] is undefined !`);
             }
@@ -1992,7 +1992,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
             AR_OBJ_SEP = mlink['$objPathSep'] || ' ';
             AR_OUT_SUFFIX = mlink['$outputSuffix'] || '';
             // cc
-            let mcc = model['groups']['c'] || model['groups']['c/cpp'];
+            const mcc = model['groups']['c'] || model['groups']['c/cpp'];
             if (mcc == undefined) {
                 throw new Error(`${mname}: model['groups']['c/cpp'] is undefined !`);
             }
@@ -2013,8 +2013,8 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
 
         this.getAllSources().forEach((src) => {
             let path = File.ToUnixPath(src.path);
-            let nam = NodePath.basename(path, NodePath.extname(path));
-            let dir = NodePath.dirname(path);
+            const nam = NodePath.basename(path, NodePath.extname(path));
+            const dir = NodePath.dirname(path);
             path = dir + '/' + nam + objsuffix;
             allobjs.push(path);
         });
@@ -2024,7 +2024,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
             if (name.startsWith('$'))
                 continue; // skip internal vars
 
-            let exprs: string[] = cfg[name];
+            const exprs: string[] = cfg[name];
             if (!Array.isArray(exprs)) continue;
 
             let libobjs: string[] = [];
@@ -2050,7 +2050,7 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         }
 
         if (cfg['$AR_PATH'])
-            AR_PATH   = File.ToUnixPath(this.toAbsolutePath(cfg['$AR_PATH']));
+            AR_PATH = File.ToUnixPath(this.toAbsolutePath(cfg['$AR_PATH']));
         if (cfg['$AR_CMD'])
             AR_PARAMS = cfg['$AR_CMD'];
 
@@ -2058,15 +2058,15 @@ export abstract class AbstractProject implements CustomConfigurationProvider, Pr
         // - gen makefile
         // --------------------------
 
-        let lib_rules: string[] = [];
+        const lib_rules: string[] = [];
 
         for (const libname in libs) {
-            let objs = libs[libname];
-            let outname = `$(OUT_DIR)/${libname + AR_OUT_SUFFIX}`;
-            let AR_CMD = AR_PARAMS
+            const objs = libs[libname];
+            const outname = `$(OUT_DIR)/${libname + AR_OUT_SUFFIX}`;
+            const AR_CMD = AR_PARAMS
                 .replace('${in}', () => `$(lib${libname}_OBJS)`)
                 .replace('${out}', outname);
-            let rule_tmp = `# ${libname}
+            const rule_tmp = `# ${libname}
 lib${libname}_OBJS += ${objs.join(AR_OBJ_SEP)}
 lib${libname}: $(lib${libname}_OBJS) ${makefile_repath}
 \t@echo -e $(COLOR_BLUE)-------------------------$(COLOR_END)
@@ -2165,7 +2165,7 @@ $(OUT_DIR):
                 `[debug]`,
                 `# put your variables for 'debug' target ...`,
                 `#VAR=`
-            )
+            );
             envFile.Write(defTxt.join(os.EOL));
         }
 
@@ -2532,7 +2532,7 @@ $(OUT_DIR):
         const toolManager = ToolchainManager.getInstance();
 
         this.toolchain = toolManager.getToolchain(prjConfig.config.type, prjConfig.config.toolchain);
-        let toolchainRoot = this.toolchain.getToolchainDir().path;
+        const toolchainRoot = this.toolchain.getToolchainDir().path;
         this.registerBuiltinVar('ToolchainRoot', () => toolchainRoot);
 
         const curOptions = prjConfig.toolchainConfigModel.getOptions();
@@ -2754,7 +2754,7 @@ $(OUT_DIR):
                     const toolInfo = toolchainInfos[tidx];
                     // get lower case target name
                     const t = file.name.replace(toolInfo.configFileName, '');
-                    const targetName_l = t === '' 
+                    const targetName_l = t === ''
                         ? 'release' : t.substr(0, t.length - 1); // use 't.length - 1' remove tailing '.'
                     // append in list
                     const options = jsonc.parse(file.Read());
@@ -2775,7 +2775,7 @@ $(OUT_DIR):
                 if (idx != -1) {
                     const targetName = allTargetNames[idx];
                     const target = conf.targets[targetName];
-                    if (target.toolchainConfigMap && 
+                    if (target.toolchainConfigMap &&
                         target.toolchainConfigMap[optionsInfo.toolchain]) {
                         target.toolchainConfigMap[optionsInfo.toolchain].options = optionsInfo.options;
                     } else {
@@ -2789,7 +2789,7 @@ $(OUT_DIR):
             // delete old builder options file, we don't need it anymore.
             for (const optionsInfo of allOptions) {
                 if (!optionsInfo.notCleanup)
-                    try { fs.unlinkSync(optionsInfo.file.path); } catch {};
+                    try { fs.unlinkSync(optionsInfo.file.path); } catch { }
             }
         }
 
@@ -2824,7 +2824,7 @@ $(OUT_DIR):
                     } else {
                         GlobalEvent.log_warn(`This options file ".eide/${file.name}" not match any target. remove it !`);
                     }
-                    try { fs.unlinkSync(file.path) } catch {} // delete file
+                    try { fs.unlinkSync(file.path); } catch { } // delete file
                 }
             }
             // merge all files options
@@ -2971,7 +2971,7 @@ $(OUT_DIR):
                             });
                         }
                     });
-                return false
+                return false;
             }
         }
 
@@ -3301,14 +3301,14 @@ class EIDEProject extends AbstractProject {
                     compiler_cmd_db = jsonc.parse(compilerDBFile.Read());
                     generate_dep_file = (cmd_db: CompilerCommandsDatabaseItem[], srcpath: string, deppath: string): Promise<void> => {
                         return new Promise((resolve) => {
-                            let idx = cmd_db.findIndex((e) => e.file == srcpath);
+                            const idx = cmd_db.findIndex((e) => e.file == srcpath);
                             if (idx == -1) { resolve(); return; }
-                            let cmd_item = cmd_db[idx];
-                            let command = cmd_item.command.replace('-co', '-sm -co');
+                            const cmd_item = cmd_db[idx];
+                            const command = cmd_item.command.replace('-co', '-sm -co');
                             child_process.exec(command, { cwd: cmd_item.directory }, (error: child_process.ExecException | null, stdout: string, stderr: string) => {
                                 if (error) {
                                     GlobalEvent.log_warn(`Failed to make '${deppath}', msg: ${(<Error>error).message}`);
-                                    try { fs.unlinkSync(deppath) } catch (error) { } // del old .d file
+                                    try { fs.unlinkSync(deppath); } catch (error) { } // del old .d file
                                     resolve();
                                 } else {
                                     fs.writeFileSync(deppath, stdout);
@@ -3370,7 +3370,7 @@ class EIDEProject extends AbstractProject {
             let line = lines[i].replace(/\\\s*$/, '').trim(); // remove char '\' end of line
 
             if (i == 0) { // first line is makefile dep format: '<obj>: <deps>'
-                let sepIndex = line.indexOf(": ");
+                const sepIndex = line.indexOf(": ");
                 if (sepIndex > 0) line = line.substring(sepIndex + 1).trim();
                 else continue; /* line is invalid, skip */
             }
@@ -3589,7 +3589,7 @@ class EIDEProject extends AbstractProject {
                     proc.on('error', (err) => GlobalEvent.log_error(err));
 
                     proc.on('close', (exitInf) => {
-                        GlobalEvent.emit('globalLog.append', os.EOL + `process exited, exitCode: ${exitInf.code}` + os.EOL)
+                        GlobalEvent.emit('globalLog.append', os.EOL + `process exited, exitCode: ${exitInf.code}` + os.EOL);
                         resolve(exitInf.code == 0);
                     });
 
@@ -3598,7 +3598,7 @@ class EIDEProject extends AbstractProject {
             });
 
         } catch (error) {
-            GlobalEvent.log_error(error)
+            GlobalEvent.log_error(error);
             GlobalEvent.emit('globalLog.show');
         }
 
@@ -4102,7 +4102,7 @@ class EIDEProject extends AbstractProject {
         }
 
         // update source browse path
-        let srcBrowseFolders: string[] = [];
+        const srcBrowseFolders: string[] = [];
 
         this.vSourceList.clear();
         this.getVirtualSourceManager().traverse((vFolder) => {

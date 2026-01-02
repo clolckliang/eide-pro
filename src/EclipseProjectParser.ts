@@ -122,7 +122,7 @@ export function formatFilePath(path: string): string {
 
 export async function parseEclipseProject(cprojectPath: string): Promise<EclipseProjectInfo> {
 
-    let _prjDom = (await xml2js.parseStringPromise(
+    const _prjDom = (await xml2js.parseStringPromise(
         fs.readFileSync(NodePath.dirname(cprojectPath) + NodePath.sep + '.project').toString()))['projectDescription'];
 
     let cprjDom = (await xml2js.parseStringPromise(
@@ -146,7 +146,7 @@ export async function parseEclipseProject(cprojectPath: string): Promise<Eclipse
     };
 
     // goto: <storageModule moduleId="org.eclipse.cdt.core.settings">
-    let node = getChild(toArray(cprjDom.storageModule), m => m.$['moduleId'] == "org.eclipse.cdt.core.settings");
+    const node = getChild(toArray(cprjDom.storageModule), m => m.$['moduleId'] == "org.eclipse.cdt.core.settings");
     if (!node) throw new Error(`not found: '<storageModule moduleId="org.eclipse.cdt.core.settings">'`);
     cprjDom = node;
 
@@ -160,7 +160,7 @@ export async function parseEclipseProject(cprojectPath: string): Promise<Eclipse
     for (const ccfg of toArray(cprjDom['cconfiguration'])) {
 
         // parse all eclipse envs
-        let eN = getChild(toArray(ccfg['storageModule']), m => m.$['moduleId'] == "org.eclipse.cdt.core.settings");
+        const eN = getChild(toArray(ccfg['storageModule']), m => m.$['moduleId'] == "org.eclipse.cdt.core.settings");
         if (eN && eN.macros) {
             toArray(eN.macros[0].stringMacro).forEach(m => {
                 const key = m.$['name'];
@@ -388,10 +388,10 @@ export async function parseEclipseProject(cprojectPath: string): Promise<Eclipse
             return PROJ_INFO.virtualSource;
 
         let curFolder = PROJ_INFO.virtualSource;
-        let pathList = rePath.split(/\\|\//).reverse();
+        const pathList = rePath.split(/\\|\//).reverse();
 
         while (pathList.length > 0) {
-            let p = pathList.pop();
+            const p = pathList.pop();
             if (!p) continue;
             const i = curFolder.folders.findIndex(d => d.name == p);
             if (i != -1) {
@@ -519,7 +519,7 @@ function parseToolOption(optionObj: any, prjtype: EclipseProjectType): { type: s
         if (fmt.includes('[option]'))
             return fmt.replace('[option]', arg);
         return fmt + arg;
-    }
+    };
 
     const cLangStds = [ "c89", "c90", "c99", "c11", "c17", "c23", "gnu89", "gnu90", "gnu99", "gnu11", "gnu17", "gnu23" ];
 

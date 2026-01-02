@@ -67,7 +67,7 @@ export async function parseIarWorkbench(ewwFile: File, iarToolchainRoot: File): 
 
     const resolveEnv = (str: string, envs?: { [name: string]: string }): string => {
 
-        let _env: { [name: string]: string } = {
+        const _env: { [name: string]: string } = {
             'PROJ_DIR': '.',
             'CUR_DIR': '.',
             'EW_DIR': ewwFile.dir,
@@ -234,7 +234,7 @@ function parseTarget(proj: IarProjectInfo, configNodes: any) {
             }
         }
     });
-};
+}
 
 function parseFileGroup(proj: IarProjectInfo, curGroup: any,
     curFolder: VirtualFolder, curPath: string) {

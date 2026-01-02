@@ -494,7 +494,7 @@ export class SettingManager {
         const execName = 'cxstm8';
 
         if (this.envPathCache.has(execName)) {
-            return new File(<string>this.envPathCache.get(execName))
+            return new File(<string>this.envPathCache.get(execName));
         }
 
         else {
@@ -521,7 +521,7 @@ export class SettingManager {
         const execName = 'iccstm8';
 
         if (this.envPathCache.has(execName)) {
-            return new File(<string>this.envPathCache.get(execName))
+            return new File(<string>this.envPathCache.get(execName));
         }
 
         else {
@@ -649,7 +649,7 @@ export class SettingManager {
 
                 let cnt = 0;
 
-                if (armccDir.IsDir()) { this.pathCache.set('ARMCC5', armccDir.path); cnt++; };
+                if (armccDir.IsDir()) { this.pathCache.set('ARMCC5', armccDir.path); cnt++; }
                 if (armclangDir.IsDir()) { this.pathCache.set('ARMCC6', armclangDir.path); cnt++; }
 
                 if (cnt > 0) {

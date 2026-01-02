@@ -181,7 +181,7 @@ export interface FlashProgramFile {
     path: string;
 
     addr?: string;
-};
+}
 
 export abstract class HexUploader<InvokeParamsType> {
 
@@ -282,7 +282,7 @@ export abstract class HexUploader<InvokeParamsType> {
 
             if (file.addr) {
                 commandLine = commandLine
-                    .replace(new RegExp(String.raw`\$\{binAddr\[${index}\]\}`, 'ig'), file.addr || '0x00000000')
+                    .replace(new RegExp(String.raw`\$\{binAddr\[${index}\]\}`, 'ig'), file.addr || '0x00000000');
             }
         });
 
@@ -391,7 +391,7 @@ class JLinkUploader extends HexUploader<any> {
 
             files.forEach((file) => {
                 if (/\.bin$/i.test(file.path)) {
-                    const addr = file.addr || option.baseAddr
+                    const addr = file.addr || option.baseAddr;
                     flasherCmds.push(`loadfile "${file.path}"${addr ? (`,${addr}`) : ''}`);
                 } else {
                     flasherCmds.push(`loadfile "${file.path}"`);
@@ -666,10 +666,10 @@ class STLinkUploader extends HexUploader<string[]> {
             if (optionFile.IsFile()) {
                 const conf = <any>ini.parse(optionFile.Read());
                 const confList: string[] = [];
-                for (const key in conf) { confList.push(`${key}=${conf[key]}`) }
+                for (const key in conf) { confList.push(`${key}=${conf[key]}`); }
                 if (confList.length > 0) {
                     commands.push('-OB');
-                    confList.forEach((val) => { commands.push(val) });
+                    confList.forEach((val) => { commands.push(val); });
                     commands.push('-rOB');
                 }
             }
@@ -731,10 +731,10 @@ class STLinkUploader extends HexUploader<string[]> {
             if (optionFile.IsFile()) {
                 const conf = <any>ini.parse(optionFile.Read());
                 const confList: string[] = [];
-                for (const key in conf) { confList.push(`${key}=${conf[key]}`) }
+                for (const key in conf) { confList.push(`${key}=${conf[key]}`); }
                 if (confList.length > 0) {
                     commands.push('-ob');
-                    confList.forEach((val) => { commands.push(val) });
+                    confList.forEach((val) => { commands.push(val); });
                     commands.push('-ob', 'displ');
                 }
             }
@@ -757,7 +757,7 @@ class STLinkUploader extends HexUploader<string[]> {
             );
         }
 
-        if (options.runAfterProgram) { commands.push('--go') }
+        if (options.runAfterProgram) { commands.push('--go'); }
 
         return commands;
     }
@@ -1070,10 +1070,10 @@ class OpenOCDUploader extends HexUploader<string[]> {
 
         const addConfig = (typ: 'interface' | 'target', fname: string) => {
             if (fname.trim() != '') {
-                let fpath: string = fname.startsWith('${workspaceFolder}/')
+                const fpath: string = fname.startsWith('${workspaceFolder}/')
                     ? fname.replace('${workspaceFolder}/', '')
                     : `${typ}/${fname}`;
-                let cfg = `-f ${fpath}.cfg`;
+                const cfg = `-f ${fpath}.cfg`;
                 if (!commands.includes(cfg))
                     commands.push(cfg);
             }
@@ -1322,7 +1322,7 @@ class CustomUploader extends HexUploader<string> {
                         env = concatSystemEnvPath(pList, env);
                     }
                 } else {
-                    env[key] = prjEnv[key]
+                    env[key] = prjEnv[key];
                 }
             }
         }

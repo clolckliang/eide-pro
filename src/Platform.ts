@@ -36,7 +36,7 @@ export const UUID_NULL = 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF';
 
 let uuid: string | undefined;
 
-let osPlatform: NodeJS.Platform = os.platform();
+const osPlatform: NodeJS.Platform = os.platform();
 
 let linuxOsId: string | undefined;
 

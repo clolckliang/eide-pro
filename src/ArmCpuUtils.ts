@@ -301,7 +301,7 @@ export function getArchExtensions(arch_or_cpu: string, toolchain: string): { nam
             ].concat(__cde_extensions());
         }
         else {
-            return []
+            return [];
         }
     }
     else {

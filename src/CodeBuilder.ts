@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as NodePath from 'path';
 import * as events from 'events';
-import * as globmatch from 'micromatch'
+import * as globmatch from 'micromatch';
 import * as os from 'os';
 import * as child_process from 'child_process';
 import * as mathjs from 'mathjs';
@@ -160,7 +160,7 @@ export abstract class CodeBuilder {
                             const val = parttenInfo[expr]?.replace(/\r\n|\n/g, ' ').replace(/\\r|\\n|\\t/g, ' ').trim();
                             if (val) {
                                 if (srcParams[srcInf.path]) {
-                                    srcParams[srcInf.path] += ` ${val}`
+                                    srcParams[srcInf.path] += ` ${val}`;
                                 } else {
                                     srcParams[srcInf.path] = val;
                                 }
@@ -202,7 +202,7 @@ export abstract class CodeBuilder {
             sources: srcList.map((inf) => inf.path),
             params: srcParams,
             alwaysBuildSourceFiles
-        }
+        };
     }
 
     getIncludeDirs(): string[] {
@@ -284,7 +284,7 @@ export abstract class CodeBuilder {
             const outDir = this.project.ToAbsolutePath(this.project.getOutputDir());
             const builderLog = File.fromArray([outDir, 'unify_builder.log']);
             if (!builderLog.IsFile()) builderLog.Write('');
-            if (this.logWatcher) { this.logWatcher.Close(); delete this.logWatcher; };
+            if (this.logWatcher) { this.logWatcher.Close(); delete this.logWatcher; }
 
             this.logWatcher = new FileWatcher(builderLog, false);
             this.logWatcher.OnChanged = () => {
@@ -452,7 +452,7 @@ export abstract class CodeBuilder {
             let tool = builderOptions.options?.linker['$toolName'];
             // we need to detect source files type ?
             if (tool == 'auto' || tool == undefined || tool == null) {
-                let hascpp = builderOptions.sourceList
+                const hascpp = builderOptions.sourceList
                     .some((path) => /\.(?:cpp|c\+\+|cc|cxx)$/i.test(path));
                 if (toolchain.name == 'LLVM_ARM')
                     tool = hascpp ? 'clang++' : 'clang'; // llvm-clang
@@ -487,7 +487,7 @@ export abstract class CodeBuilder {
             try {
                 if (!mkfile_dir.IsDir()) mkfile_dir.CreateDir(true);
                 fs.writeFileSync(`${this.project.ToAbsolutePath(outDir)}/${mkfile_path}`, mkfile_cont);
-                let command: any = {
+                const command: any = {
                     name: 'make libraries',
                     command: `make --directory=./${outDir} --makefile=./${mkfile_path} all`
                 };
@@ -616,7 +616,7 @@ export class ARMCodeBuilder extends CodeBuilder {
     }
 
     private EmptyMemoryScatter(): MemoryScatter {
-        let memScatter: MemoryScatter = {
+        const memScatter: MemoryScatter = {
             startUpIndex: -1,
             romList: [],
             ramList: []
@@ -662,7 +662,7 @@ export class ARMCodeBuilder extends CodeBuilder {
 
     private GetMemoryScatter(_storageLayout: ARMStorageLayout): MemoryScatter {
 
-        let memScatter = this.EmptyMemoryScatter();
+        const memScatter = this.EmptyMemoryScatter();
         memScatter.startUpIndex = -1;
 
         const storageLayout: ARMStorageLayout = JSON.parse(JSON.stringify(_storageLayout));
@@ -776,7 +776,7 @@ export class ARMCodeBuilder extends CodeBuilder {
                     return;
                 }
             });
-        }
+        };
 
         const options = this.project.getSourceExtraArgsCfg();
         if (options && options.memoryAssign) {
@@ -811,10 +811,10 @@ export class ARMCodeBuilder extends CodeBuilder {
             }
 
             return content;
-        }
+        };
         //RAM
         memScatter.ramList.forEach((item, index) => {
-            let content = ''
+            let content = '';
             if (item.roFiles.length > 0) {
                 item.roFiles.forEach((fileName) => {
                     content = InsertFileToScatter(fileName, content, 'RO');
@@ -848,7 +848,7 @@ export class ARMCodeBuilder extends CodeBuilder {
 
         //ROM
         memScatter.romList.forEach((item, index) => {
-            let content = ''
+            let content = '';
             if (item.roFiles.length > 0) {
                 item.roFiles.forEach((fileName) => {
                     content = InsertFileToScatter(fileName, content, 'RO');
@@ -1051,7 +1051,7 @@ export class ARMCodeBuilder extends CodeBuilder {
 
         const ldFileList: string[] = [];
 
-        let scatterFilePath: string = config.toolchainConfig.scatterFilePath;
+        const scatterFilePath: string = config.toolchainConfig.scatterFilePath;
 
         switch (toolchain.name) {
 
@@ -1097,11 +1097,11 @@ export class ARMCodeBuilder extends CodeBuilder {
             // if no scatter, will use X/O Base, R/O Base options
             if (ldFileList.length == 0) {
 
-                let xo_base = options.linker['xo-base']?.trim();
-                let ro_base = options.linker['ro-base']?.trim();
-                let rw_base = options.linker['rw-base']?.trim();
+                const xo_base = options.linker['xo-base']?.trim();
+                const ro_base = options.linker['ro-base']?.trim();
+                const rw_base = options.linker['rw-base']?.trim();
 
-                let ld_flag: string[] = [];
+                const ld_flag: string[] = [];
 
                 if (xo_base) ld_flag.push(`--xo-base ${xo_base}`);
                 if (ro_base) ld_flag.push(`--ro-base ${ro_base} --entry ${ro_base}`);

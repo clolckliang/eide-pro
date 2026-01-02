@@ -732,7 +732,7 @@ export class OperationExplorer {
                 if (dir && dir.IsDir())
                     return this.getStatusTxt(true) + ` Loc: ${dir.path}`;
                 else
-                    return this.getStatusTxt(false) + ` Loc: ${dir?.path || ''}`
+                    return this.getStatusTxt(false) + ` Loc: ${dir?.path || ''}`;
             };
 
             const toolchainPickItems: ToolchainDespPickItem[] = [
@@ -1103,7 +1103,7 @@ export class OperationExplorer {
 
     async selectTemplate(templateGroup: TemplateGroup): Promise<TemplatePickItem | undefined> {
 
-        let prevGroupStack: TemplateGroup[] = [];
+        const prevGroupStack: TemplateGroup[] = [];
         let curTempGroup: TemplateGroup = templateGroup;
 
         const goBackItemForGroup: vscode.QuickPickItem = { label: '..', description: 'Back', alwaysShow: true };
@@ -1262,30 +1262,28 @@ export class OperationExplorer {
                         location: vscode.ProgressLocation.Notification,
                         title: `Connect repo '${rawUrl}' ...`,
                         cancellable: true
-                    }, (_, token): Thenable<NetResponse<any>> => {
-                        return new Promise(async (resolve) => {
+                    }, async (_, token): Promise<NetResponse<any>> => {
 
-                            token.onCancellationRequested(() => {
-                                netReq.emit('abort');
-                            });
-
-                            const headers: any = utility.setProxyHeader({
-                                'User-Agent': 'Mozilla/5.0'
-                            });
-
-                            if (acToken) { // if token is enabled, use it
-                                headers['Authorization'] = `token ${acToken}`;
-                            }
-
-                            const res = await netReq.Request<any, any>({
-                                host: hostName,
-                                path: path,
-                                timeout: 3000,
-                                headers: headers
-                            }, 'https');
-
-                            resolve(res);
+                        token.onCancellationRequested(() => {
+                            netReq.emit('abort');
                         });
+
+                        const headers: any = utility.setProxyHeader({
+                            'User-Agent': 'Mozilla/5.0'
+                        });
+
+                        if (acToken) { // if token is enabled, use it
+                            headers['Authorization'] = `token ${acToken}`;
+                        }
+
+                        const res = await netReq.Request<any, any>({
+                            host: hostName,
+                            path: path,
+                            timeout: 3000,
+                            headers: headers
+                        }, 'https');
+
+                        return res;
                     });
 
                     if (!res.success) {
@@ -1342,14 +1340,12 @@ export class OperationExplorer {
                         location: vscode.ProgressLocation.Notification,
                         title: 'Fetching templates index ...',
                         cancellable: false
-                    }, (_, __): Thenable<Buffer | Error | undefined> => {
-                        return new Promise(async (resolve) => {
-                            if (indexFileInfo.download_url) {
-                                resolve(await utility.downloadFile(indexFileInfo.download_url));
-                            } else {
-                                resolve(new Error('download url is null !'));
-                            }
-                        });
+                    }, async (_, __): Promise<Buffer | Error | undefined> => {
+                        if (indexFileInfo.download_url) {
+                            return await utility.downloadFile(indexFileInfo.download_url);
+                        } else {
+                            return new Error('download url is null !');
+                        }
                     });
 
                     if (indexFileBuf instanceof Buffer) {
@@ -1512,32 +1508,28 @@ export class OperationExplorer {
                             location: vscode.ProgressLocation.Notification,
                             title: 'Downloading template',
                             cancellable: true
-                        }, (progress, token): Thenable<boolean> => {
-                            return new Promise(async (resolve) => {
+                        }, async (progress, token): Promise<boolean> => {
 
-                                const res = await utility.downloadFileWithProgress(
-                                    <string>temp_sel_item.download_url, temp_sel_item.file_name, progress, token);
+                            const res = await utility.downloadFileWithProgress(
+                                <string>temp_sel_item.download_url, temp_sel_item.file_name, progress, token);
 
-                                if (res instanceof Buffer) {
-                                    fs.writeFileSync((<File>targetTempFile).path, res);
-                                    resManager.addCache({
-                                        name: (<File>targetTempFile).name,
-                                        size: res.length,
-                                        version: temp_sel_item.version
-                                    });
-                                    resolve(true);
-                                    return;
-                                }
+                            if (res instanceof Buffer) {
+                                fs.writeFileSync((<File>targetTempFile).path, res);
+                                resManager.addCache({
+                                    name: (<File>targetTempFile).name,
+                                    size: res.length,
+                                    version: temp_sel_item.version
+                                });
+                                return true;
+                            }
 
-                                else if (res instanceof Error) {
-                                    GlobalEvent.emit('msg', ExceptionToMessage(res, 'Warning'));
-                                    resolve(false);
-                                    return;
-                                }
+                            else if (res instanceof Error) {
+                                GlobalEvent.emit('msg', ExceptionToMessage(res, 'Warning'));
+                                return false;
+                            }
 
-                                // res is undefined, operation canceled
-                                resolve(false);
-                            });
+                            // res is undefined, operation canceled
+                            return false;
                         });
 
                         // download failed, reset targetTempFile to undefined
@@ -1628,19 +1620,17 @@ export class OperationExplorer {
                 location: vscode.ProgressLocation.Notification,
                 title: `Cloning Template`,
                 cancellable: true,
-            }, (progress, cancel): Promise<boolean> => {
-                return new Promise(async (resolve) => {
-                    progress.report({ message: targetCloneUrl });
-                    const done = await utility.execInternalCommand(`git clone ${targetCloneUrl}`, outputDirPath, cancel);
-                    if (done) {
-                        try {
-                            child_process.execSync(`git remote remove origin`, { cwd: outputDirPath });
-                        } catch (error) {
-                            // nothing todo
-                        }
+            }, async (progress, cancel): Promise<boolean> => {
+                progress.report({ message: targetCloneUrl });
+                const done = await utility.execInternalCommand(`git clone ${targetCloneUrl}`, outputDirPath, cancel);
+                if (done) {
+                    try {
+                        child_process.execSync(`git remote remove origin`, { cwd: outputDirPath });
+                    } catch (error) {
+                        // nothing todo
                     }
-                    resolve(done);
-                });
+                }
+                return done;
             });
 
             if (done) {
@@ -1669,7 +1659,6 @@ export class OperationExplorer {
 
         this.locked = true;
 
-        let targetTempFile: File | undefined;
 
         const templateFile = await vscode.window.showOpenDialog({
             openLabel: select_a_template_file,
@@ -1686,7 +1675,7 @@ export class OperationExplorer {
             return;
         }
 
-        targetTempFile = new File(templateFile[0].fsPath);
+        const targetTempFile = new File(templateFile[0].fsPath);
 
         //====================================================
 

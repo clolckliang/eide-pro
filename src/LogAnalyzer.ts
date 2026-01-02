@@ -125,7 +125,7 @@ export class LogAnalyzer {
 
         if (result.msg.contentType === 'exception') {
             try {
-                let eMsg: ExceptionMessage = JSON.parse(result.msg.content);
+                const eMsg: ExceptionMessage = JSON.parse(result.msg.content);
                 result.displayable = {
                     title: eMsg.name,
                     text: eMsg.message
@@ -146,7 +146,7 @@ export class LogAnalyzer {
     private AnalyzeWarning(result: AnalyzeResult) {
 
         if (result.msg.contentType === 'exception') {
-            let eMsg: ExceptionMessage = JSON.parse(result.msg.content);
+            const eMsg: ExceptionMessage = JSON.parse(result.msg.content);
             result.displayable = {
                 title: eMsg.name,
                 text: eMsg.message

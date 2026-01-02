@@ -39,8 +39,8 @@ import { view_str$compile$options, view_str$compile$storageLayout,
     view_str$env_desc$compiler_full_name
 } from "./StringTable";
 import * as NodePath from 'path';
-import * as CmsisConfigParser from './CmsisConfigParser'
-import * as os from 'os'
+import * as CmsisConfigParser from './CmsisConfigParser';
+import * as os from 'os';
 import * as platform from './Platform';
 import * as fs from 'fs';
 import { EncodingConverter } from "./EncodingConverter";
@@ -250,14 +250,14 @@ export class WebPanelManager {
             envList.push({
                 name: `\$\{${key}\}`,
                 desc: `${prjEnv[key]}`
-            })
+            });
         }
         // other EIDE_xx variables
         [
             { name: '${EIDE_CUR_COMPILER_CC_BASE_ARGS}', desc: view_str$env_desc$cc_base_args },
             { name: '${EIDE_CUR_COMPILER_CXX_BASE_ARGS}', desc: view_str$env_desc$cxx_base_args },
             { name: '${EIDE_CUR_COMPILER_AS_BASE_ARGS}', desc: view_str$env_desc$asm_base_args }
-        ].forEach(item => envList.push(item))
+        ].forEach(item => envList.push(item));
 
         const toolchain = project.getToolchain();
 

@@ -392,7 +392,7 @@ export abstract class Configuration<ConfigType = any, EventType = any> {
     Save(force?: boolean): void {
 
         let oldContent: string | undefined;
-        let newContent: string = this.toString();
+        const newContent: string = this.toString();
 
         try {
             if (this.cfgFile.IsExist())
@@ -502,15 +502,15 @@ export class ProjectConfiguration<T extends BuilderConfigData>
             }
         };
 
-        this.watcher.OnChanged = _cb
+        this.watcher.OnChanged = _cb;
         this.watcher.OnRename = _cb;
     }
 
-    static parseProjectFile<T>(input: string): ProjectConfigData<T> {
+    static parseProjectFile<T extends BuilderConfigData>(input: string): ProjectConfigData<T> {
         return yaml.parse(input);
     }
 
-    static dumpProjectFile<T>(obj: ProjectConfigData<T>): string {
+    static dumpProjectFile<T extends BuilderConfigData>(obj: ProjectConfigData<T>): string {
         const keyOrder = [
             'version',
             'name',
@@ -885,7 +885,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
         const targetDep = this.GetDependence(groupName, dep.name);
         if (targetDep) {
             const _newDep: any = this.MergeDepList([targetDep, dep], targetDep.name);
-            for (let key in <any>targetDep) {
+            for (const key in <any>targetDep) {
                 (<any>targetDep)[key] = _newDep[key];
             }
             this.emit('dataChanged', { type: 'dependence' });
@@ -1182,7 +1182,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
         if (path == newPath || newPath.trim() == '')
             return;
         const dep = this.CustomDep_getDependence();
-        let index = dep.incList.findIndex((p) => { return p === path; });
+        const index = dep.incList.findIndex((p) => { return p === path; });
         if (index !== -1) {
             dep.incList[index] = newPath;
             this.emit('dataChanged', { type: 'dependence' });
@@ -1191,7 +1191,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
 
     CustomDep_RemoveIncDir(path: string) {
         const dep = this.CustomDep_getDependence();
-        let index = dep.incList.findIndex((p) => { return p === path; });
+        const index = dep.incList.findIndex((p) => { return p === path; });
         if (index !== -1) {
             dep.incList.splice(index, 1);
             this.emit('dataChanged', { type: 'dependence' });
@@ -1240,7 +1240,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
         if (_define == newDefine || newDefine.trim() == '')
             return;
         const dep = this.CustomDep_getDependence();
-        let index = dep.defineList.findIndex((define) => { return define === _define; });
+        const index = dep.defineList.findIndex((define) => { return define === _define; });
         if (index !== -1) {
             dep.defineList[index] = newDefine;
             this.emit('dataChanged', { type: 'dependence' });
@@ -1249,7 +1249,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
 
     CustomDep_RemoveDefine(_define: string) {
         const dep = this.CustomDep_getDependence();
-        let index = dep.defineList.findIndex((define) => { return define === _define; });
+        const index = dep.defineList.findIndex((define) => { return define === _define; });
         if (index !== -1) {
             dep.defineList.splice(index, 1);
             this.emit('dataChanged', { type: 'dependence' });
@@ -1293,7 +1293,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
         if (path == newPath || newPath.trim() == '')
             return;
         const dep = this.CustomDep_getDependence();
-        let index = dep.libList.findIndex((p) => { return path === p; });
+        const index = dep.libList.findIndex((p) => { return path === p; });
         if (index !== -1) {
             dep.libList[index] = newPath;
             this.emit('dataChanged', { type: 'dependence' });
@@ -1302,7 +1302,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
 
     CustomDep_RemoveLib(path: string) {
         const dep = this.CustomDep_getDependence();
-        let index = dep.libList.findIndex((p) => { return path === p; });
+        const index = dep.libList.findIndex((p) => { return path === p; });
         if (index !== -1) {
             dep.libList.splice(index, 1);
             this.emit('dataChanged', { type: 'dependence' });
@@ -1412,7 +1412,7 @@ export class ProjectConfiguration<T extends BuilderConfigData>
             GlobalEvent.log_error(error);
             return {}; // empty obj
         }
-    };
+    }
 
     setProjectUsrCtx(data: ProjectUserContextData) {
         const key = `project.${this.config.miscInfo.uid || 'unknown'}`;
@@ -1510,8 +1510,8 @@ export class ProjectConfiguration<T extends BuilderConfigData>
         //
 
         // compatible missing field for old project
-        let defCfg = <any>this.GetDefault(this.config.type);
-        let curCfg = <any>this.config;
+        const defCfg = <any>this.GetDefault(this.config.type);
+        const curCfg = <any>this.config;
         for (const key in defCfg) {
             if (curCfg[key] == undefined &&
                 EXCL_KEYS_IN_EIDE_JSON.includes(key) == false) {

@@ -29,14 +29,14 @@ export interface CmsisConfigItemRange {
     end: number;
 
     step?: number;
-};
+}
 
 export interface CmsisConfigItemEnums {
 
     val: string;
 
     desc: string;
-};
+}
 
 export interface CmsisConfigItemDispInfo {
 
@@ -45,7 +45,7 @@ export interface CmsisConfigItemDispInfo {
     prefix?: string;
 
     radix?: number;
-};
+}
 
 export interface CmsisConfigItem {
 
@@ -95,11 +95,11 @@ export interface CmsisConfigItem {
     // ---
 
     children: CmsisConfigItem[];
-};
+}
 
 export interface CmsisConfiguration {
     items: CmsisConfigItem[];
-};
+}
 
 export function parse(lines: string[]): CmsisConfiguration | undefined {
 
@@ -155,9 +155,9 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
 
     for (let index = startIdx + 1; index < endIdx; index++) {
 
-        const cur_grp  = getCurGroup(context);
+        const cur_grp = getCurGroup(context);
         const cur_line = lines[index];
-        const cur_ele  = context.last_ele;
+        const cur_ele = context.last_ele;
 
         // skip some lines for <c> tag
         if (cur_ele?.type == 'code')
@@ -248,7 +248,7 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
 
                 // '!' 表示代码段已被注释，'' 表示取消注释
                 cur_ele.var_value = cur_line.trimStart().startsWith('//')
-                    ? '!' 
+                    ? '!'
                     : '';
             }
         }
@@ -257,7 +257,7 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
         const macroMatcher = /^\s*#define\s+(?<key>\w+)\s*(?<value>.+)?/;
         let match = macroMatcher.exec(cur_line);
         if (!match || match.groups == undefined) {
-            if (cur_line.trim().startsWith('//') || 
+            if (cur_line.trim().startsWith('//') ||
                 cur_line.trim().startsWith('/*'))
                 continue; // 跳过注释
             // 匹配赋值表达式：'GPIO.G.redPortMode = A = 1; // ABC'
@@ -381,21 +381,21 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
 
 interface TagMatcher {
     [tag: string]: { start: RegExp, end?: RegExp }
-};
+}
 
 interface MacroItem {
     name: string;
     value: string;
     line_idx: number;
     line_txt: string;
-};
+}
 
 interface ParserContext {
     grp_stack: CmsisConfigItem[];
     last_ele: CmsisConfigItem | undefined;
     macro_list: MacroItem[];
     comment_skip_line_count: number; // 仅给 <!c> 标签使用
-};
+}
 
 // ---
 
@@ -442,7 +442,7 @@ function parseNumber(str: string): NumberValueInfo {
             fmtStr: str.replace(numberMatcher, '<num>') // in UI, '<num>' will be replace to real value
         };
     }
-    return { num: NaN }
+    return { num: NaN };
 }
 
 function toNumber(numStr: string): number {
@@ -451,7 +451,7 @@ function toNumber(numStr: string): number {
 
 function parseEnums(str: string): CmsisConfigItemEnums[] | undefined {
     const lines = str.match(/<\w+=>\s*[^<]+/g)?.map((m) => `// ${m.trim()}`);
-    if (!lines) { return undefined }
+    if (!lines) { return undefined; }
     const res: CmsisConfigItemEnums[] = [];
     for (const line of lines) {
         const match = fieldMatcher['enums'].start.exec(line);
@@ -493,8 +493,8 @@ function newItemsGroup(): CmsisConfigItem {
 
 const subNodeNames = [
     // 这些节点只能依附于一个父节点，作为父节点的属性；它们不能单独存在
-    'tooltip', 
-    'defval', 
+    'tooltip',
+    'defval',
     'enums'
 ];
 const optionPropMatchers = [
@@ -502,7 +502,7 @@ const optionPropMatchers = [
     /<(?<var_range_s>\d+|0x[0-9a-f]+)-(?<var_range_e>\d+|0x[0-9a-f]+)(?::(?<var_range_step>\d+|0x[0-9a-f]+))?>/i,
     /<#(?<disp_operator>[\+\-\*\/])(?<disp_operate_val>\d+|0x[0-9a-f]+)>/i,
     /<f\.(?<disp_fmt>[d|h|o|b])>/i
-]
+];
 function parseElement(line: string, type: string, match: RegExpExecArray, context: ParserContext): CmsisConfigItem | undefined {
 
     let item: CmsisConfigItem | undefined;
@@ -541,7 +541,7 @@ function parseElement(line: string, type: string, match: RegExpExecArray, contex
             // desc
             item.desc = (keyVal['suffix'] || item.desc).trimStart();
             // props
-            const suffix = keyVal['suffix'] || ''
+            const suffix = keyVal['suffix'] || '';
             if (suffix) {
                 // 配置项与选项写在一行，需要解析选项，如：// <o> USART2_TX Pin <0=>Not Used <1=>PA2 <2=>PD5
                 if (/<\w+=>\s*[^<]+/.test(suffix)) {
@@ -555,10 +555,10 @@ function parseElement(line: string, type: string, match: RegExpExecArray, contex
                 // 匹配选项的附加属性
                 else {
                     for (const matcher of optionPropMatchers) {
-                        const opt_match = matcher.exec(suffix)
+                        const opt_match = matcher.exec(suffix);
                         if (opt_match && opt_match.groups) {
                             for (const key in opt_match.groups) {
-                                keyVal[key] = opt_match.groups[key] || keyVal[key]
+                                keyVal[key] = opt_match.groups[key] || keyVal[key];
                             }
                         }
                     }
@@ -568,7 +568,7 @@ function parseElement(line: string, type: string, match: RegExpExecArray, contex
 
         if (keyVal['var_range_s'] && keyVal['var_range_e']) {
             item.var_range = { start: toNumber(keyVal['var_range_s']), end: toNumber(keyVal['var_range_e']) };
-            if (keyVal['var_range_step']) item.var_range.step = toNumber(keyVal['var_range_step'])
+            if (keyVal['var_range_step']) item.var_range.step = toNumber(keyVal['var_range_step']);
         }
 
         if (keyVal['enum_val']) {
@@ -630,43 +630,45 @@ function parseElement(line: string, type: string, match: RegExpExecArray, contex
 
 function align_hex_val(hex_str: string): string {
 
-    let fmt_len = 1
+    let fmt_len = 1;
 
     for (let index = 0; index < 8; index++) {
 
-        fmt_len <<= 1
+        fmt_len <<= 1;
 
         if (fmt_len == hex_str.length) {
-            return hex_str
+            return hex_str;
         }
         else if (fmt_len > hex_str.length) {
-            let rm_size = fmt_len - hex_str.length
-            return `${'0'.repeat(rm_size)}${hex_str}`
+            const rm_size = fmt_len - hex_str.length;
+            return `${'0'.repeat(rm_size)}${hex_str}`;
         }
     }
 
-    return hex_str
+    return hex_str;
 }
 
 function get_mask(start: number, end_?: number): number {
 
-    let end = end_ || start
+    const end = end_ || start;
 
-    let mask_val = 0
+    let mask_val = 0;
 
     for (let index = 0; index < (end - start) + 1; index++) {
-        mask_val <<= 1
-        mask_val |= 1
+        mask_val <<= 1;
+        mask_val |= 1;
     }
 
-    return mask_val << start
+    return mask_val << start;
 }
 
 function updateElementDispVal(item: CmsisConfigItem) {
 
     if (item.type == 'section') {
 
-        let { num, isHex, fmtStr } = parseNumber(item.var_value);
+        const res = parseNumber(item.var_value);
+        let num = res.num;
+        const { isHex, fmtStr } = res;
 
         // raw value
         {
@@ -677,20 +679,20 @@ function updateElementDispVal(item: CmsisConfigItem) {
         // apply bits
         if (item.var_mod_bit && (!isNaN(num))) {
 
-            item.var_mod_bit.end = undefined // 'section' bits size must be '1'
-            let mask = get_mask(item.var_mod_bit.start, item.var_mod_bit.end) >>> item.var_mod_bit.start
+            item.var_mod_bit.end = undefined; // 'section' bits size must be '1'
+            const mask = get_mask(item.var_mod_bit.start, item.var_mod_bit.end) >>> item.var_mod_bit.start;
 
-            num >>= item.var_mod_bit.start
-            num &= mask
+            num >>= item.var_mod_bit.start;
+            num &= mask;
 
-            item.var_disp_value = num.toString()
+            item.var_disp_value = num.toString();
             item.var_fmt_value = fmtStr;
         }
     }
 
     else if (item.type == 'bool') {
 
-        let { num, isHex, fmtStr } = parseNumber(item.var_value);
+        const { num, isHex, fmtStr } = parseNumber(item.var_value);
 
         // raw value
         {
@@ -701,7 +703,9 @@ function updateElementDispVal(item: CmsisConfigItem) {
 
     else if (item.type == 'option') {
 
-        let { num, isHex, fmtStr } = parseNumber(item.var_value);
+        const res = parseNumber(item.var_value);
+        let num = res.num;
+        const { isHex, fmtStr } = res;
 
         // 处理选项的值是非数字的情况
         // 注意：只有使用 <o key-identifier> 标签才能使用非数字的选项值，否则应该抛出错误
@@ -738,16 +742,16 @@ function updateElementDispVal(item: CmsisConfigItem) {
 
             if (!isNaN(num)) {
 
-                let mask = get_mask(item.var_mod_bit.start, item.var_mod_bit.end) >>> item.var_mod_bit.start
+                const mask = get_mask(item.var_mod_bit.start, item.var_mod_bit.end) >>> item.var_mod_bit.start;
 
-                num >>= item.var_mod_bit.start
-                num &= mask
+                num >>= item.var_mod_bit.start;
+                num &= mask;
 
                 if (isHex) {
-                    num >>>= 0
-                    item.var_disp_value = `0x${align_hex_val(num.toString(16))}`
+                    num >>>= 0;
+                    item.var_disp_value = `0x${align_hex_val(num.toString(16))}`;
                 } else {
-                    item.var_disp_value = num.toString()
+                    item.var_disp_value = num.toString();
                 }
 
                 item.var_fmt_value = fmtStr;
@@ -757,45 +761,45 @@ function updateElementDispVal(item: CmsisConfigItem) {
         // fmt disp val
         if (item.var_disp_inf.operate) {
 
-            let operator = item.var_disp_inf.operate.operator
+            let operator = item.var_disp_inf.operate.operator;
 
             switch (operator) {
                 case '+':
-                    operator = '-'
+                    operator = '-';
                     break;
                 case '-':
-                    operator = '+'
+                    operator = '+';
                     break;
                 case '*':
-                    operator = '/'
+                    operator = '/';
                     break;
                 case '/':
-                    operator = '*'
+                    operator = '*';
                     break;
                 default:
                     break;
             }
 
-            let var_val = item.var_disp_value || item.var_value;
-            let { num, isHex, fmtStr } = parseNumber(var_val);
-            let disp_val = eval(`${num}${operator}${item.var_disp_inf.operate.val}`)
+            const var_val = item.var_disp_value || item.var_value;
+            const { num, isHex, fmtStr } = parseNumber(var_val);
+            let disp_val = eval(`${num}${operator}${item.var_disp_inf.operate.val}`);
 
             if (typeof (disp_val) == 'string') {
-                let { num, isHex, fmtStr } = parseNumber(item.var_value);
+                const { num, isHex, fmtStr } = parseNumber(item.var_value);
                 disp_val = num;
             }
 
             if (typeof (disp_val) != 'number') {
-                disp_val = NaN
+                disp_val = NaN;
             }
 
             if (!isNaN(disp_val)) {
 
                 if (isHex) {
-                    disp_val >>>= 0
-                    item.var_disp_value = `0x${align_hex_val(disp_val.toString(16))}`
+                    disp_val >>>= 0;
+                    item.var_disp_value = `0x${align_hex_val(disp_val.toString(16))}`;
                 } else {
-                    item.var_disp_value = disp_val.toString()
+                    item.var_disp_value = disp_val.toString();
                 }
 
                 item.var_fmt_value = fmtStr;
@@ -805,11 +809,11 @@ function updateElementDispVal(item: CmsisConfigItem) {
 
     // format string
     else if (item.type == 'string') {
-        const matcher = /"(.*)"/
-        const m = matcher.exec(item.var_value)
+        const matcher = /"(.*)"/;
+        const m = matcher.exec(item.var_value);
         if (m && m.length > 1) {
             item.var_disp_value = m[1];
-            item.var_fmt_value = item.var_value.replace(matcher, '"{}"') // in UI, '{}' will be replace to real value
+            item.var_fmt_value = item.var_value.replace(matcher, '"{}"'); // in UI, '{}' will be replace to real value
         }
     }
 }

@@ -22,7 +22,7 @@ export interface SimpleUIConfig {
     items: {
         [key: string]: SimpleUIConfigItem;
     };
-};
+}
 
 export interface SimpleUIBtnInfo {
 
@@ -59,7 +59,7 @@ export interface SimpleUIConfigItem {
           SimpleUIConfigData_divider |
           SimpleUIConfigData_tag |
           SimpleUIConfigData_button;
-};
+}
 
 // input box
 //
