@@ -144,6 +144,7 @@ import { IarImporter } from './importers/IarImporter';
 import { CMakeImporter } from './importers/CMakeImporter';
 import { ProjectCreator } from './ProjectCreator';
 import { ProjectManager } from './ProjectManager';
+import { CppConfigProvider } from './providers/CppConfigProvider';
 import { ShellFlasherIndexItem } from './WebInterface/WebInterface';
 import { jsonc } from 'jsonc';
 import { SimpleUIConfig, SimpleUIConfigData_input, SimpleUIConfigData_options, SimpleUIConfigData_text, SimpleUIConfigData_table, SimpleUIConfigData_boolean, SimpleUIConfigData_divider, SimpleUIConfigData_tag } from "./SimpleUIDef";
@@ -1953,19 +1954,17 @@ class PathCompletionItem extends vscode.CompletionItem {
     }
 }
 
-export class ProjectExplorer implements CustomConfigurationProvider {
+export class ProjectExplorer {
 
     private readonly vFolderNameMatcher = /^\w[\w\t \-:@\.]*$/;
 
     private view: vscode.TreeView<ProjTreeItem>;
     private dataProvider: ProjectDataProvider;
+    private cppConfigProvider: CppConfigProvider;
 
     private _event: events.EventEmitter;
     private cppcheck_diag: vscode.DiagnosticCollection;
     private cppcheck_out: vscode.OutputChannel;
-
-    private cppToolsApi: CppToolsApi | undefined;
-    private cppToolsOut: vscode.OutputChannel;
 
     private compiler_diags: Map<string, vscode.DiagnosticCollection>;
 
@@ -1979,6 +1978,7 @@ export class ProjectExplorer implements CustomConfigurationProvider {
         this.compiler_diags = new Map();
 
         this.dataProvider = new ProjectDataProvider(context);
+        this.cppConfigProvider = new CppConfigProvider(this.dataProvider, context);
         this.cppcheck_diag = vscode.languages.createDiagnosticCollection('cppcheck');
 
         this.view = vscode.window.createTreeView('cl.eide.view.projects', {
@@ -2015,7 +2015,6 @@ export class ProjectExplorer implements CustomConfigurationProvider {
 
         // create vsc output channel
         this.cppcheck_out = vscode.window.createOutputChannel('eide-static-check-log');
-        this.cppToolsOut = vscode.window.createOutputChannel('eide-cpptools-log');
 
         // register doc event
         context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -2051,9 +2050,12 @@ export class ProjectExplorer implements CustomConfigurationProvider {
             }));
 
         // register project hook
-        GlobalEvent.on('project.opened', (prj) => this.onProjectOpened(prj));
+        GlobalEvent.on('project.opened', (prj) => {
+            this.cppConfigProvider.registerCpptoolsProvider(prj);
+            this.cppConfigProvider.registerClangdProvider(prj);
+        });
         GlobalEvent.on('project.closed', (uid) => this.onProjectClosed(uid));
-        GlobalEvent.on('project.activeStatusChanged', (uid) => this.notifyCpptoolsRefresh());
+        GlobalEvent.on('project.activeStatusChanged', (uid) => this.cppConfigProvider.notifyCpptoolsRefresh());
 
         this.on('request_open_project', (fsPath: string) => ProjectManager.getInstance().OpenProject(fsPath));
         this.on('request_create_project', (option: CreateOptions) => ProjectManager.getInstance().CreateProject(option));
@@ -2116,274 +2118,6 @@ export class ProjectExplorer implements CustomConfigurationProvider {
                 }
             }
         };
-    }
-
-    // -----------------------------------------
-    //  cpptools intellisense provider
-    // -----------------------------------------
-
-    name: string = 'eide';
-
-    extensionId: string = 'cl.eide';
-
-    private isRegisteredCpptoolsProvider: boolean = false;
-
-    private async registerCpptoolsProvider(prj: AbstractProject) {
-
-        // notify cpptools update when project config changed
-        prj.on('cppConfigChanged', () => {
-            if (this.cppToolsApi) {
-                if (this.cppToolsApi.notifyReady) {
-                    this.cppToolsApi.notifyReady(this);
-                } else {
-                    this.cppToolsApi.didChangeCustomConfiguration(this);
-                    this.cppToolsApi.didChangeCustomBrowseConfiguration(this);
-                }
-            }
-        });
-
-        // active cpptools
-        {
-            const cpptoolsId = "ms-vscode.cpptools";
-            const extension = vscode.extensions.getExtension(cpptoolsId);
-            if (extension) {
-                if (!extension.isActive) {
-                    try {
-                        GlobalEvent.log_info(`Active extension: '${cpptoolsId}'`);
-                        await extension.activate();
-                    } catch (error) {
-                        GlobalEvent.log_warn(error);
-                    }
-                }
-            } else {
-                GlobalEvent.log_warn(`The extension '${cpptoolsId}' is not enabled or installed !`);
-            }
-        }
-
-        // get cpptools api if we have not get
-        if (!this.cppToolsApi) {
-            this.cppToolsApi = await getCppToolsApi(Version.v5);
-            if (!this.cppToolsApi) {
-                const msg = `Can't get cpptools api, please active c/c++ extension, otherwise, the c/c++ intellisence config cannot be provided !`;
-                this.cppToolsOut.appendLine(`[error] ${msg}`);
-                return;
-            }
-        }
-
-        // register cpptools provider, skip if already registered
-        if (this.cppToolsApi && !this.isRegisteredCpptoolsProvider) {
-
-            this.cppToolsApi.registerCustomConfigurationProvider(this);
-            this.cppToolsOut.appendLine(`[init] register CustomConfigurationProvider done !\r\n`);
-
-            // update cppConfig now
-            prj.forceUpdateCpptoolsConfig();
-
-            // set flag
-            this.isRegisteredCpptoolsProvider = true;
-        }
-    }
-
-    notifyCpptoolsRefresh() {
-
-        if (this.cppToolsApi) {
-            if (this.cppToolsApi.notifyReady) {
-                this.cppToolsApi.notifyReady(this);
-            } else {
-                this.cppToolsApi.didChangeCustomConfiguration(this);
-                this.cppToolsApi.didChangeCustomBrowseConfiguration(this);
-            }
-        }
-    }
-
-    // Map<sourePath, ProjectUid[]>
-    private _sourceWhereFroms: Map<string, string[]> = new Map();
-
-    async canProvideConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Promise<boolean> {
-
-        this.cppToolsOut.appendLine(`[source] cpptools request provideConfigurations for '${uri.fsPath}'`);
-
-        const providerList: string[] = [];
-
-        await this.dataProvider.traverseProjectsAsync(async (prj) => {
-
-            const result = await prj.canProvideConfiguration(uri, token);
-            if (result) {
-                providerList.push(prj.getUid());
-            }
-
-            return false; // don't break loop
-        });
-
-        if (providerList.length > 0) {
-            this._sourceWhereFroms.set(uri.fsPath, providerList);
-            return true;
-        } else {
-            this._sourceWhereFroms.delete(uri.fsPath);
-            return false;
-        }
-    }
-
-    async provideConfigurations(uris: vscode.Uri[], token?: vscode.CancellationToken | undefined): Promise<SourceFileConfigurationItem[]> {
-
-        let result: SourceFileConfigurationItem[] = [];
-
-        const activePrjUid = this.getActiveProject()?.getUid();
-
-        for (const uri of uris) {
-
-            const prjList = this._sourceWhereFroms.get(uri.fsPath);
-            if (prjList == undefined || prjList.length == 0) continue;
-
-            let proj: AbstractProject | undefined;
-            if (activePrjUid) {
-                const pidx = prjList.findIndex(uid => uid == activePrjUid);
-                if (pidx != -1) {
-                    proj = this.dataProvider.getProjectByUid(prjList[pidx]);
-                }
-            } else {
-                proj = this.dataProvider.getProjectByUid(prjList[0]);
-            }
-
-            if (proj) {
-                result = result.concat(await proj.provideConfigurations([uri], token));
-            }
-        }
-
-        this.cppToolsOut.appendLine(`[source] provideConfigurations`);
-        this.cppToolsOut.appendLine(yml.stringify(result));
-
-        return result;
-    }
-
-    async canProvideBrowseConfigurationsPerFolder(token?: vscode.CancellationToken | undefined): Promise<boolean> {
-        let result = false;
-        await this.dataProvider.traverseProjectsAsync(async (prj) => {
-            result = await prj.canProvideBrowseConfigurationsPerFolder(token);
-            return result;
-        });
-        return result;
-    }
-
-    async provideFolderBrowseConfiguration(uri: vscode.Uri, token?: vscode.CancellationToken | undefined): Promise<WorkspaceBrowseConfiguration | null> {
-        let result: WorkspaceBrowseConfiguration | null = null;
-        await this.dataProvider.traverseProjectsAsync(async (prj) => {
-            result = await prj.provideFolderBrowseConfiguration(uri, token);
-            return result !== null;
-        });
-        this.cppToolsOut.appendLine(`[folder] provideFolderBrowseConfiguration for '${uri.fsPath}'`);
-        this.cppToolsOut.appendLine(yml.stringify(result));
-        return result;
-    }
-
-    /**
-     * @note we not support
-    */
-    canProvideBrowseConfiguration(token?: vscode.CancellationToken | undefined): Thenable<boolean> {
-        return new Promise((resolve) => {
-            resolve(false);
-        });
-    }
-
-    /**
-     * @note we not support
-    */
-    provideBrowseConfiguration(token?: vscode.CancellationToken | undefined): Thenable<WorkspaceBrowseConfiguration | null> {
-        return new Promise((resolve) => {
-            resolve(null);
-        });
-    }
-
-    dispose() {
-        this.dataProvider.traverseProjects((prj) => {
-            prj.dispose();
-            return undefined;
-        });
-    }
-
-    // ----------------------------------------
-    //  clangd config provider
-    // ----------------------------------------
-
-    private async registerClangdProvider(prj: AbstractProject) {
-
-        if (this.cppToolsApi)
-            return; // 如果 cpptools 激活了，则禁用 clangd，防止两个冲突
-
-        prj.on('cppConfigChanged', () => {
-
-            if (!SettingManager.instance().isEnableClangdConfigGenerator()) {
-                GlobalEvent.log_info(`ignore update .clangd, because "EIDE.Option.EnableClangdConfigGenerator" is not set`);
-                return;
-            }
-
-            // ----------------------
-            // setup clangd config
-            // ----------------------
-            try {
-                let cfg: any = {};
-                const fclangd = File.fromArray([prj.getProjectRoot().path, '.clangd']);
-                if (fclangd.IsFile()) {
-                    cfg = yaml.parse(fclangd.Read());
-                }
-                if (!cfg['CompileFlags']) cfg['CompileFlags'] = {};
-                if (!cfg['CompileFlags']['Add']) cfg['CompileFlags']['Add'] = [];
-                if (!cfg['CompileFlags']['Remove']) cfg['CompileFlags']['Remove'] = [];
-                //
-                cfg['CompileFlags']['CompilationDatabase'] = './' + File.ToUnixPath(prj.getOutputDir());
-                const toolchain = prj.getToolchain();
-                const gccLikePath = toolchain.getGccFamilyCompilerPathForCpptools('c');
-                if (gccLikePath) { // clangd 仅兼容gcc的编译器
-                    cfg['CompileFlags']['Compiler'] = gccLikePath;
-                    let clangdCompileFlags = <string[]>(cfg['CompileFlags']['Add']);
-                    const compilerArgs = prj.getCpptoolsConfig().cppCompilerArgs;
-                    if (isGccFamilyToolchain(toolchain.name)) {
-                        const tRoot = toolchain.getToolchainDir().path;
-                        clangdCompileFlags = clangdCompileFlags.filter(p => !File.isSubPathOf(tRoot, p.substr(2)));
-                        const li = getGccSystemSearchList(File.ToLocalPath(gccLikePath), ['-xc++'].concat(compilerArgs || []));
-                        if (li) {
-                            li.forEach(p => {
-                                clangdCompileFlags.push(`-I${File.normalize(p)}`);
-                            });
-                        }
-                    } else if (toolchain.name == 'LLVM_ARM') {
-                        // nothing todo. This is llvm.
-                    } else {
-                        clangdCompileFlags.push(`-I${toolchain.getToolchainDir().path}/include`);
-                        clangdCompileFlags.push(`-I${toolchain.getToolchainDir().path}/include/libcxx`);
-                    }
-                    // // add flags
-                    // if (compilerArgs)
-                    //     compilerArgs.forEach(arg => clangdCompileFlags.push(arg));
-                    // // add user includes
-                    // prj.getCpptoolsConfig().includePath
-                    //     .forEach(path => clangdCompileFlags.push(`-I${path}`));
-                    // // add user defines
-                    // prj.getCpptoolsConfig().defines
-                    //     .forEach(d => clangdCompileFlags.push(`-D${d}`));
-                    // del repeat
-                    cfg['CompileFlags']['Add'] = ArrayDelRepetition(clangdCompileFlags);
-                }
-                // 其他不受 clangd 支持的编译器要自行设置 -I -D
-                else if (toolchain.name == 'AC5' || toolchain.name == 'SDCC' || toolchain.name == 'GNU_SDCC_MCS51') {
-                    const builderOpts = prj.getBuilderOptions();
-                    const prjConfig = prj.GetConfiguration();
-                    const compilerFlags: string[] = cfg['CompileFlags']['Add'] || [];
-                    toolchain.getSystemIncludeList(builderOpts)
-                        .forEach(p => compilerFlags.push(`-I"${p}"`));
-                    toolchain.getInternalDefines(<any>prjConfig.config.toolchainConfig, builderOpts)
-                        .forEach(d => compilerFlags.push(`-D"${d.name}=${d.value}"`));
-                    cfg['CompileFlags']['Add'] = ArrayDelRepetition(compilerFlags);
-                    // 禁用所有诊断错误，因为 clangd 不支持这些编译器
-                    cfg['Diagnostics'] = { 'Suppress': '*' };
-                }
-                fclangd.Write(yaml.stringify(cfg));
-            } catch (error) {
-                GlobalEvent.log_error(error);
-            }
-        });
-
-        prj.forceUpdateCpptoolsConfig();
     }
 
     // -----------------------------------------
@@ -2454,9 +2188,9 @@ export class ProjectExplorer implements CustomConfigurationProvider {
 
     private async onProjectOpened(prj: AbstractProject) {
 
-        await this.registerCpptoolsProvider(prj);
+        await this.cppConfigProvider.registerCpptoolsProvider(prj);
 
-        await this.registerClangdProvider(prj);
+        await this.cppConfigProvider.registerClangdProvider(prj);
 
         this.updateCompilerDiagsAfterBuild(prj);
 
