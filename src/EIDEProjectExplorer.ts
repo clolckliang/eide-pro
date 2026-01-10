@@ -28,36 +28,28 @@ import * as fs from 'fs';
 import * as NodePath from 'path';
 import * as child_process from 'child_process';
 import * as os from 'os';
-import * as yaml from 'yaml';
-import * as ini from 'ini';
 import * as jsonc_parser from 'jsonc-parser';
 
 import { File } from '../lib/node-utility/File';
 import { ResManager } from './ResManager';
 import { GlobalEvent } from './GlobalEvents';
-import { AbstractProject, CheckError, DataChangeType, VirtualSource, SourceFileOptions, EIDE_FILE_OPTION_VERSION } from './EIDEProject';
+import { AbstractProject, DataChangeType } from './EIDEProject';
 import { ToolchainName, ToolchainManager } from './ToolchainManager';
 import {
-    BuilderOptions,
     CreateOptions, VirtualFolder, VirtualFile, ImportOptions,
-    ProjectTargetInfo, ProjectConfigData, ProjectType, ProjectConfiguration, ProjectBaseApi, MAPPED_KEYS_IN_TARGET_INFO
+    ProjectConfiguration
 } from './EIDETypeDefine';
 import {
     PackInfo, ComponentFileItem, DeviceInfo,
-    getComponentKeyDescription, ArmBaseCompileData, ArmBaseCompileConfigModel, ARMStorageLayout,
-    RiscvCompileData, AnyGccCompileData,
+    getComponentKeyDescription, ArmBaseCompileData,
     getRamRomName,
     getRamRomRange
 } from "./EIDEProjectModules";
 import { WorkspaceManager } from './WorkspaceManager';
 import {
-    can_not_close_project, project_is_opened, project_load_failed,
-    continue_text, cancel_text, project_exist_txt,
-    project_record_read_failed, pack_info, compile_config, set_device_hint,
-    switch_workspace_hint, add_include_path, add_define, project_dependence,
+    project_dependence,
     view_str$pack$installed_component, not_support_no_arm_project,
     install_this_pack, export_keil_xml_ok, export_keil_xml_failed,
-    invalid_project_path,
     uploadConfig_desc, add_lib_path, view_str$pack$components,
     view_str$project$title, view_str$project$excludeFolder, view_str$project$excludeFile,
     view_str$pack$install_component_failed, view_str$pack$remove_component_failed,
@@ -67,27 +59,13 @@ import {
     view_str$project$folder_type_virtual, view_str$project$sel_folder_type,
     view_str$project$add_source,
     view_str$settings$prj_name,
-    view_str$operation$import_done,
-    view_str$operation$import_failed,
-    view_str$operation$create_prj_done,
     view_str$settings$prjEnv,
-    view_str$prompt$unresolved_deps,
-    view_str$prompt$prj_location,
-    view_str$prompt$src_folder_must_be_a_child_of_root,
-    view_str$prompt$removeSrcDir,
-    view_str$project$folder_type_virtual_desc,
-    view_str$project$folder_type_fs_desc,
-    view_str$msg$err_ewt_hash,
-    view_str$msg$err_ept_hash,
-    view_str$prompt$eclipse_imp_warning,
     view_str$prompt$need_reload_project,
     view_str$prompt$needReloadToUpdateEnv,
     getLocalLanguageType,
     LanguageIndexs,
     txt_yes,
     txt_no,
-    remove_this_item,
-    view_str$prompt$filesOptionsComment,
     view_str$virual_doc_provider_banner,
     view_str$operation$cmake_no_compile_commands,
     view_str$operation$cmake_generating,

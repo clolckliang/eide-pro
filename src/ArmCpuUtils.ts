@@ -68,6 +68,7 @@ export function getArmCpuArch(cpu: string): string | undefined {
             return arch;
         }
     }
+    return undefined;
 }
 
 export function getArchExampleCpus(arch: string): string[] | undefined {
@@ -76,6 +77,7 @@ export function getArchExampleCpus(arch: string): string[] | undefined {
             return armArchMap[key].slice(1);
         }
     }
+    return undefined;
 }
 
 export function getArchFamily(arch: string): string | undefined {
@@ -84,6 +86,7 @@ export function getArchFamily(arch: string): string | undefined {
             return armArchMap[key][0];
         }
     }
+    return undefined;
 }
 
 function __cde_extensions(): { name: string, description: string }[] {

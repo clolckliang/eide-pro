@@ -304,6 +304,7 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
             if (macro.line_idx > line_idx)
                 return context.macro_list[i + (skip_count || 0)];
         }
+        return undefined;
     };
     const findNextMacroByName = (name: string, range?: { start: number, end: number }): MacroItem | undefined => {
         return context.macro_list.find((macro) => {
@@ -315,6 +316,7 @@ export function parse(lines: string[]): CmsisConfiguration | undefined {
             }
             if (macro.name == name)
                 return true;
+            return false;
         });
     };
 
@@ -421,6 +423,7 @@ const varNameMatcher = /^\s*([\w])\s*/;
 function parseVarName(str: string): string | undefined {
     const match = varNameMatcher.exec(str);
     if (match && match.length > 1) return match[1];
+    return undefined;
 }
 
 interface NumberValueInfo {
