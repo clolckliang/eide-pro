@@ -591,7 +591,7 @@ async function tryUpdateBinaries(binFolder: File, localVer?: string): Promise<bo
             const url = `https://api.github.com/repos/github0null/eide-resource/contents/binaries/${platform.getRuntimeId()}/VERSION`;
             const cont = await utility.requestTxt(utility.redirectHost(url));
             if (typeof cont != 'string') return cont;
-            let obj: any = undefined;
+            let obj: { content?: string; } | undefined = undefined;
             try { obj = JSON.parse(cont); } catch (error) { return error; }
             if (typeof obj.content != 'string') return obj.content;
             return Buffer.from(obj.content, 'base64').toString();
@@ -2138,7 +2138,7 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
             return dbgCfg;
         };
 
-        const newAttachDebugCfg = (cfgtocopy: any) => {
+        const newAttachDebugCfg = (cfgtocopy: vscode.DebugConfiguration) => {
             const nCfg = JSON.parse(JSON.stringify(cfgtocopy));
             nCfg['name'] += '(attach)';
             nCfg['request'] = 'attach';
