@@ -52,6 +52,7 @@ import { ToolchainName, IToolchian, ToolchainManager } from './ToolchainManager'
 import { GlobalEvent } from './GlobalEvents';
 import { ArrayDelRepetition } from '../lib/node-utility/Utility';
 import { ExceptionToMessage, newMessage } from './Message';
+import { toError } from './utils/ErrorHandler';
 import { PackageManager, ComponentUpdateItem, ComponentUpdateType } from './PackageManager';
 import { HexUploaderType } from './HexUploader';
 import { WebPanelManager } from './WebPanelManager';
@@ -766,9 +767,8 @@ class SourceRootList implements SourceProvider {
             }
 
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
             rootFolderInfo.needUpdate = true; // set need update flag
-            GlobalEvent.log_warn(err);
+            GlobalEvent.log_warn(toError(error));
         }
     }
 }

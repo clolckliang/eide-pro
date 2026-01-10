@@ -52,13 +52,14 @@ import { WorkspaceManager } from "./WorkspaceManager";
 import { ToolchainName } from "./ToolchainManager";
 import {
     md5, sha256, copyObject, generateDotnetProgramCmd, generateRandomStr,
-    isGccFamilyToolchain, compareVersion 
+    isGccFamilyToolchain, compareVersion
 } from "./utility";
 import { exeSuffix, osType } from "./Platform";
 import { FileWatcher } from "../lib/node-utility/FileWatcher";
 import { STVPFlasherOptions } from './HexUploader';
 import * as ArmCpuUtils from './ArmCpuUtils';
 import { view_str$gen_sct_failed } from './StringTable';
+import { toError } from './utils/ErrorHandler';
 
 export interface BuildOptions {
 
@@ -194,7 +195,7 @@ export abstract class CodeBuilder {
             }
 
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
+            const err = toError(error);
             GlobalEvent.emit('msg', ExceptionToMessage(err, 'Hidden'));
             GlobalEvent.emit('msg', newMessage('Warning', `Append files options failed !, msg: ${err.message || ''}`));
         }
@@ -297,7 +298,7 @@ export abstract class CodeBuilder {
             this.logWatcher.Watch();
 
         } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
+            const err = toError(error);
             GlobalEvent.emit('msg', ExceptionToMessage(err, 'Hidden'));
         }
 
@@ -497,7 +498,7 @@ export abstract class CodeBuilder {
                     builderOptions.options.afterBuildTasks = [];
                 builderOptions.options.afterBuildTasks = [command].concat(builderOptions.options.afterBuildTasks);
             } catch (error) {
-                const err = error instanceof Error ? error : new Error(String(error));
+                const err = toError(error);
                 GlobalEvent.emit('msg', newMessage('Warning', `Generating '${mkfile_path}' failed !`));
                 GlobalEvent.log_error(err);
             }
