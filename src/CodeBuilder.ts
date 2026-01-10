@@ -193,7 +193,8 @@ export abstract class CodeBuilder {
                 }
             }
 
-        } catch (err) {
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
             GlobalEvent.emit('msg', ExceptionToMessage(err, 'Hidden'));
             GlobalEvent.emit('msg', newMessage('Warning', `Append files options failed !, msg: ${err.message || ''}`));
         }
@@ -296,7 +297,8 @@ export abstract class CodeBuilder {
             this.logWatcher.Watch();
 
         } catch (error) {
-            GlobalEvent.emit('msg', ExceptionToMessage(error, 'Hidden'));
+            const err = error instanceof Error ? error : new Error(String(error));
+            GlobalEvent.emit('msg', ExceptionToMessage(err, 'Hidden'));
         }
 
         // run build
@@ -495,8 +497,9 @@ export abstract class CodeBuilder {
                     builderOptions.options.afterBuildTasks = [];
                 builderOptions.options.afterBuildTasks = [command].concat(builderOptions.options.afterBuildTasks);
             } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
                 GlobalEvent.emit('msg', newMessage('Warning', `Generating '${mkfile_path}' failed !`));
-                GlobalEvent.log_error(error);
+                GlobalEvent.log_error(err);
             }
         }
 

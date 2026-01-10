@@ -766,8 +766,9 @@ class SourceRootList implements SourceProvider {
             }
 
         } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
             rootFolderInfo.needUpdate = true; // set need update flag
-            GlobalEvent.log_warn(error);
+            GlobalEvent.log_warn(err);
         }
     }
 }
