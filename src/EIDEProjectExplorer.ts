@@ -99,7 +99,7 @@ import {
 import { CodeBuilder, BuildOptions } from './CodeBuilder';
 import { ExceptionToMessage, newMessage } from './Message';
 import { SettingManager } from './SettingManager';
-import { HexUploaderManager, HexUploaderType, JLinkOptions, JLinkProtocolType, OpenOCDFlashOptions, PyOCDFlashOptions } from './HexUploader';
+import { HexUploaderManager, HexUploaderType, JLinkOptions, JLinkProtocolType, OpenOCDFlashOptions, PyOCDFlashOptions, ProbeRSFlashOptions } from './HexUploader';
 import { SevenZipper, CompressOption } from './Compress';
 import { DependenceManager } from './DependenceManager';
 import { ArrayDelRepetition } from '../lib/node-utility/Utility';
@@ -382,7 +382,8 @@ class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem>, vsco
                 this.UpdateView(this.treeCache.getTreeItem(prj, TreeItemType.COMPILE_CONFIGURATION));
                 break;
             case 'uploader':
-                this.UpdateView(this.treeCache.getTreeItem(prj, TreeItemType.UPLOAD_OPTION));
+                // Need to refresh PROJECT node (not just UPLOAD_OPTION) to update the label
+                this.UpdateView(this.treeCache.getTreeItem(prj, TreeItemType.PROJECT));
                 break;
             case 'pack':
                 this.UpdateView(this.treeCache.getTreeItem(prj, TreeItemType.PACK));
@@ -5744,8 +5745,41 @@ export class ProjectExplorer {
         }
     }
 
+
+    private detectRTOS(prj: AbstractProject): string | undefined {
+        const config = prj.GetConfiguration().config;
+        const depList = config.dependenceList;
+
+        const allDefinesList: string[] = [];
+        for (const group of depList) {
+            for (const dep of group.depList) {
+                allDefinesList.push(...dep.defineList);
+            }
+        }
+        const allDefinesStr = allDefinesList.join(' ');
+
+        if (allDefinesStr.includes('RT_USING_COMPONENTS_INIT') || allDefinesStr.includes('RT_THREAD')) return 'RT-Thread';
+        if (allDefinesStr.includes('FREERTOS_CONFIG_H') || allDefinesStr.includes('FreeRTOS')) return 'FreeRTOS';
+        if (allDefinesStr.includes('UCOS_II') || allDefinesStr.includes('UCOS_III')) return 'uCOS';
+        if (allDefinesStr.includes('TX_THREAD_H')) return 'ThreadX';
+        if (allDefinesStr.includes('ZEPHYR_VERSION_H')) return 'Zephyr';
+
+        for (const group of depList) {
+            for (const dep of group.depList) {
+                for (const inc of dep.incList) {
+                    const incPath = prj.ToAbsolutePath(inc);
+                    if (fs.existsSync(NodePath.join(incPath, 'rtthread.h'))) return 'RT-Thread';
+                    if (fs.existsSync(NodePath.join(incPath, 'FreeRTOS.h'))) return 'FreeRTOS';
+                    if (fs.existsSync(NodePath.join(incPath, 'tx_api.h'))) return 'ThreadX';
+                    if (fs.existsSync(NodePath.join(incPath, 'os.h')) && allDefinesStr.includes('UCOS')) return 'uCOS';
+                }
+            }
+        }
+        return undefined;
+    }
+
     private async genDebugConfig_internal(
-        type: 'jlink' | 'openocd' | 'pyocd',
+        type: 'jlink' | 'openocd' | 'pyocd' | 'probe-rs',
         prj: AbstractProject, old_cfgs: any[]): Promise<{ debug_config: any, override_idx: number } | undefined> {
 
         const _elfPath = File.ToUnixPath(prj.getOutputDir()) + '/' + `${prj.getProjectName()}.elf`;
@@ -5782,6 +5816,21 @@ export class ProjectExplorer {
                 runToEntryPoint: "main",
                 targetId: '<mcu-name>',
                 serverArgs: []
+            },
+            'probe-rs': {
+                cwd: '${workspaceRoot}',
+                type: 'eide-debug',
+                request: 'launch',
+                name: `${prj.getProjectCurrentTargetName()}: probe-rs`,
+                chip: '<chip-name>',
+                flashingConfig: {
+                    flashingEnabled: true,
+                    haltAfterReset: true
+                },
+                coreConfigs: [{
+                    coreIndex: 0,
+                    programBinary: _elfPath
+                }]
             }
         };
 
@@ -5799,6 +5848,85 @@ export class ProjectExplorer {
         const device = prj.GetPackManager().getCurrentDevInfo();
         if (device && device.svdPath && debugConfig.svdFile == undefined) {
             debugConfig.svdFile = prj.ToRelativePath(device.svdPath) || device.svdPath;
+        }
+
+        /* auto-populate cortex-debug configs from uploader settings */
+        const uploader = prj.GetConfiguration().uploadConfigModel;
+        if (type === 'jlink' && uploader.uploader === 'JLink') {
+            const opts = <JLinkOptions>uploader.data;
+            if (opts.cpuInfo && opts.cpuInfo.cpuName) {
+                debugConfig.device = opts.cpuInfo.cpuName;
+            }
+            if (opts.proType !== undefined) {
+                debugConfig.interface = JLinkProtocolType[opts.proType]?.toLowerCase() || 'swd';
+            }
+        } else if (type === 'pyocd' && uploader.uploader === 'pyOCD') {
+            const opts = <PyOCDFlashOptions>uploader.data;
+            if (opts.targetName) {
+                debugConfig.targetId = opts.targetName;
+            }
+        } else if (type === 'openocd' && uploader.uploader === 'OpenOCD') {
+            const opts = <OpenOCDFlashOptions>uploader.data;
+            const cfgFiles: string[] = [];
+            if (opts.interface && opts.interface.trim()) {
+                const cfgPath = opts.interface.startsWith('${workspaceFolder}/')
+                    ? opts.interface.replace('${workspaceFolder}/', '')
+                    : `interface/${opts.interface}.cfg`;
+                cfgFiles.push(cfgPath.endsWith('.cfg') ? cfgPath : `${cfgPath}.cfg`);
+            }
+            if (opts.target && opts.target.trim()) {
+                const cfgPath = opts.target.startsWith('${workspaceFolder}/')
+                    ? opts.target.replace('${workspaceFolder}/', '')
+                    : `target/${opts.target}.cfg`;
+                cfgFiles.push(cfgPath.endsWith('.cfg') ? cfgPath : `${cfgPath}.cfg`);
+            }
+            if (cfgFiles.length > 0) {
+                debugConfig.configFiles = cfgFiles;
+            }
+        }
+
+        /* set chip name for probe-rs */
+        if (type === 'probe-rs') {
+            // try get speed, protocol, allowEraseAll, and fallback chip from uploader config
+            let opts: ProbeRSFlashOptions | undefined;
+            if (uploader.uploader == 'probe-rs') {
+                opts = <ProbeRSFlashOptions>uploader.data;
+            }
+
+            // set chip name: prefer device.name, fallback to opts.target
+            if (device && device.name) {
+                debugConfig.chip = device.name;
+            } else if (opts && opts.target) {
+                debugConfig.chip = opts.target;
+            }
+
+            if (opts) {
+                if (opts.speed) {
+                    debugConfig.speed = opts.speed;
+                }
+                if (opts.protocol) {
+                    debugConfig.wireProtocol = opts.protocol.toLowerCase() == 'swd' ? 'Swd' : 'Jtag';
+                }
+                if (opts.allowEraseAll !== undefined) {
+                    debugConfig.allowEraseAll = opts.allowEraseAll;
+                }
+                // parse '--probe VID:PID' or '--probe VID:PID:Serial' from otherOptions
+                if (opts.otherOptions) {
+                    const m = /--probe (\w+\:\w+(?:\:\w+)?)/.exec(opts.otherOptions);
+                    if (m && m.length > 1) {
+                        debugConfig.probe = m[1];
+                    }
+                }
+            }
+            // Note: probe-rs does not support 'rtos' property (unlike cortex-debug)
+        }
+
+        /* set RTOS for cortex-debug configs (jlink, openocd, pyocd) */
+        if (type !== 'probe-rs') {
+            const rtos = this.detectRTOS(prj);
+            if (rtos) {
+                debugConfig.rtos = rtos;
+            }
         }
 
         const isChinese = getLocalLanguageType() == LanguageIndexs.Chinese;
@@ -6042,6 +6170,61 @@ export class ProjectExplorer {
             };
         }
 
+        /* For probe-rs */
+        else if (type == 'probe-rs') {
+
+            const chipName = debugConfig.chip || '';
+            const speed = debugConfig.speed || '';
+            const wireProtocol = debugConfig.wireProtocol || 'Swd';
+
+            /* setup ui */
+            ui.items['chip'] = {
+                type: 'input',
+                name: isChinese ? '芯片型号' : 'Chip Name',
+                attrs: { 'singleLine': true, size: 30 },
+                data: <SimpleUIConfigData_input>{
+                    value: chipName,
+                    placeHolder: 'STM32F103C8'
+                },
+            };
+            ui.items['wireProtocol'] = {
+                type: 'options',
+                name: isChinese ? '接口协议' : 'Wire Protocol',
+                attrs: {},
+                data: <SimpleUIConfigData_options>{
+                    value: wireProtocol == 'Jtag' ? 1 : 0,
+                    default: 0,
+                    enum: ['Swd', 'Jtag'],
+                    enumDescriptions: ['SWD', 'JTAG'],
+                }
+            };
+            ui.items['speed'] = {
+                type: 'input',
+                name: isChinese ? '速度 (kHz)' : 'Speed (kHz)',
+                attrs: { 'singleLine': true, size: 10 },
+                data: <SimpleUIConfigData_input>{
+                    value: speed ? String(speed) : '',
+                    placeHolder: '4000'
+                },
+            };
+
+            uiResultConv = (data, outConfig) => {
+                const chip = (<SimpleUIConfigData_input>data.items['chip'].data).value;
+                if (chip && chip.trim()) {
+                    outConfig.chip = chip.trim();
+                }
+                const protocolIdx = (<SimpleUIConfigData_options>data.items['wireProtocol'].data).value;
+                outConfig.wireProtocol = ['Swd', 'Jtag'][protocolIdx];
+                const speedStr = (<SimpleUIConfigData_input>data.items['speed'].data).value;
+                if (speedStr && speedStr.trim()) {
+                    const speedNum = parseInt(speedStr.trim(), 10);
+                    if (!isNaN(speedNum)) {
+                        outConfig.speed = speedNum;
+                    }
+                }
+            };
+        }
+
         return new Promise((resolve) => {
 
             WebPanelManager.instance().showSimpleConfigUI(ui,
@@ -6077,7 +6260,7 @@ export class ProjectExplorer {
         });
     }
 
-    async genDebugConfigTemplate(item: ProjTreeItem, type: 'jlink' | 'openocd' | 'pyocd') {
+    async genDebugConfigTemplate(item: ProjTreeItem, type: 'jlink' | 'openocd' | 'pyocd' | 'probe-rs') {
 
         const project = this.dataProvider.GetProjectByIndex(item.val.projectIndex);
         const cfgfile = File.from(project.GetWorkspaceConfig().GetFile().dir, AbstractProject.vsCodeDir, 'launch.json');

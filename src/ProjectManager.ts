@@ -16,7 +16,6 @@ import { KeilImporter } from './importers/KeilImporter';
 import { EclipseImporter } from './importers/EclipseImporter';
 import { IarImporter } from './importers/IarImporter';
 import { CMakeImporter } from './importers/CMakeImporter';
-import { SconsImporter } from './importers/SconsImporter';
 import {
     project_load_failed,
     continue_text,
@@ -253,9 +252,6 @@ export class ProjectManager {
                 break;
             case 'cmake':
                 CMakeImporter.importProject(option).catch(err => catchErr(err));
-                break;
-            case 'scons':
-                SconsImporter.importProject(option).catch(err => catchErr(err));
                 break;
             default:
                 break;

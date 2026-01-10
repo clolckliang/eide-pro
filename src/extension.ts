@@ -75,7 +75,7 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
         platform.init(context);
     } catch (error) {
-        const msg = (<Error>error).message;
+        const msg = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(msg);
         GlobalEvent.log_error(msg);
         return;
@@ -259,6 +259,8 @@ export async function activate(context: vscode.ExtensionContext) {
         '_cl.eide.project.genDebugConfigTemplate.openocd', (item) => projectExplorer.genDebugConfigTemplate(item, 'openocd')));
     subscriptions.push(vscode.commands.registerCommand(
         '_cl.eide.project.genDebugConfigTemplate.pyocd', (item) => projectExplorer.genDebugConfigTemplate(item, 'pyocd')));
+    subscriptions.push(vscode.commands.registerCommand(
+        '_cl.eide.project.genDebugConfigTemplate.probe-rs', (item) => projectExplorer.genDebugConfigTemplate(item, 'probe-rs')));
 
     // project deps
     subscriptions.push(vscode.commands.registerCommand('_cl.eide.project.addIncludeDir', (item) => projectExplorer.AddIncludeDir(item.val.projectIndex)));
@@ -299,6 +301,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.debug.registerDebugConfigurationProvider('cortex-debug', new ExternalDebugConfigProvider('cortex-debug'),
         vscode.DebugConfigurationProviderTriggerKind.Dynamic);
     vscode.debug.registerDebugConfigurationProvider('probe-rs-debug', new ExternalDebugConfigProvider('probe-rs-debug'),
+        vscode.DebugConfigurationProviderTriggerKind.Dynamic);
+    vscode.debug.registerDebugConfigurationProvider('eide-debug', new ExternalDebugConfigProvider('eide-debug'),
         vscode.DebugConfigurationProviderTriggerKind.Dynamic);
     // vscode.debug.registerDebugConfigurationProvider('stm8-debug', new ExternalDebugConfigProvider('stm8-debug'),
     //     vscode.DebugConfigurationProviderTriggerKind.Dynamic);
@@ -1997,6 +2001,41 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
             }
         };
 
+        const detectRTOS = (prj: AbstractProject): string | undefined => {
+            const config = prj.GetConfiguration().config;
+            const depList = config.dependenceList;
+
+            // 1. Collect all defines
+            const allDefinesList: string[] = [];
+            for (const group of depList) {
+                for (const dep of group.depList) {
+                    allDefinesList.push(...dep.defineList);
+                }
+            }
+            const allDefinesStr = allDefinesList.join(' ');
+
+            if (allDefinesStr.includes('RT_USING_COMPONENTS_INIT') || allDefinesStr.includes('RT_THREAD')) return 'RT-Thread';
+            if (allDefinesStr.includes('FREERTOS_CONFIG_H') || allDefinesStr.includes('FreeRTOS')) return 'FreeRTOS';
+            if (allDefinesStr.includes('UCOS_II') || allDefinesStr.includes('UCOS_III')) return 'uCOS';
+            if (allDefinesStr.includes('TX_THREAD_H')) return 'ThreadX';
+            if (allDefinesStr.includes('ZEPHYR_VERSION_H')) return 'Zephyr';
+
+            // 2. Check include paths for common headers
+            for (const group of depList) {
+                for (const dep of group.depList) {
+                    for (const inc of dep.incList) {
+                        const incPath = prj.ToAbsolutePath(inc);
+                        if (fs.existsSync(NodePath.join(incPath, 'rtthread.h'))) return 'RT-Thread';
+                        if (fs.existsSync(NodePath.join(incPath, 'FreeRTOS.h'))) return 'FreeRTOS';
+                        if (fs.existsSync(NodePath.join(incPath, 'tx_api.h'))) return 'ThreadX';
+                        if (fs.existsSync(NodePath.join(incPath, 'os.h')) && allDefinesStr.includes('UCOS')) return 'uCOS';
+                    }
+                }
+            }
+
+            return undefined;
+        };
+
         const newCortexDebugCfg = (prj: AbstractProject) => {
 
             const dbgCfg: vscode.DebugConfiguration = {
@@ -2029,7 +2068,72 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
                 'samplesPerSecond': 4
             };
 
+            const rtos = detectRTOS(prj);
+            if (rtos) {
+                GlobalEvent.log_info(`[debug config] Detected RTOS: ${rtos}, auto injecting 'rtos' field.`);
+                dbgCfg['rtos'] = rtos;
+            }
+
             dbgCfg['svdFile'] = getSvdFile(prj);
+
+            // Add ITM/SWO & Graphing Templates (Commented out by default)
+            /*
+            dbgCfg['swoConfig'] = {
+                "enabled": true,
+                "cpuFrequency": 72000000,
+                "swoFrequency": 2000000,
+                "source": "probe",
+                "decoders": [
+                    { "type": "console", "label": "ITM", "port": 0 }
+                ]
+            };
+            dbgCfg['graphConfig'] = [
+                { "label": "Variable 1", "expression": "my_var" }
+            ];
+            */
+
+            return dbgCfg;
+        };
+
+        const newEideDebugCfg = (prj: AbstractProject, deviceName?: string, speed?: number, protocol?: 'Swd' | 'Jtag') => {
+
+            const dbgCfg: vscode.DebugConfiguration = {
+                type: 'eide-debug',
+                name: 'Debug: probe-rs',
+                request: 'launch',
+                cwd: '${workspaceFolder}',
+                chip: deviceName || '<chip-name>',
+                connectUnderReset: false,
+                flashingConfig: {
+                    flashingEnabled: true,
+                    haltAfterReset: true
+                },
+                coreConfigs: [{
+                    coreIndex: 0,
+                    programBinary: toFmtRelativePath(prj.getExecutablePathWithoutSuffix() + '.elf')
+                }]
+            };
+
+            if (speed) {
+                dbgCfg['speed'] = speed;
+            }
+
+            if (protocol) {
+                dbgCfg['wireProtocol'] = protocol;
+            }
+
+            // Detect and inject RTOS type
+            const rtos = detectRTOS(prj);
+            if (rtos) {
+                GlobalEvent.log_info(`[eide-debug config] Detected RTOS: ${rtos}, auto injecting.`);
+                dbgCfg['rtos'] = rtos;
+            }
+
+            // Add SVD file if available
+            const svdFile = getSvdFile(prj);
+            if (svdFile) {
+                (<any>dbgCfg.coreConfigs[0]).svdFile = svdFile;
+            }
 
             return dbgCfg;
         };
@@ -2132,42 +2236,52 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
         else if (flashertype == 'STLink') {
             const resManager = ResManager.instance();
             const flasherCfg = (<STLinkOptions>flasherOpts);
+            const dbgCfg = newCortexDebugCfg(prj);
+
             // find ST-LINK_gdbserver
             let gdbserverPath: string | undefined;
             if (platform.osType() == 'win32') {
                 const gdbserver = File.from(resManager.getEideToolsInstallDir(),
                     'stlink_gdb_server', 'bin', 'ST-LINK_gdbserver.exe');
                 if (!gdbserver.IsFile()) {
-                    ResInstaller.instance().setOrInstallTools('stlink_gdb_server', 'Not found ST-LINK_gdbserver.exe');
-                    return [];
+                    // ResInstaller.instance().setOrInstallTools('stlink_gdb_server', 'Not found ST-LINK_gdbserver.exe');
+                    GlobalEvent.log_warn('Not found ST-LINK_gdbserver.exe, skip generate STLink debug config');
+                } else {
+                    gdbserverPath = gdbserver.path;
                 }
-                gdbserverPath = gdbserver.path;
             } else {
                 gdbserverPath = platform.find('ST-LINK_gdbserver');
             }
+
             // find STM32_Programmer_CLI
             let cubeProgramerPath: string | undefined;
             if (platform.osType() == 'win32') {
                 const cubeProgramerExe = File.from(resManager.getEideToolsInstallDir(),
                     'st_cube_programer', 'bin', 'STM32_Programmer_CLI.exe');
                 if (!cubeProgramerExe.IsFile()) {
-                    ResInstaller.instance().setOrInstallTools('STLink', 'Not found STM32_Programmer_CLI.exe');
-                    return [];
+                    // ResInstaller.instance().setOrInstallTools('STLink', 'Not found STM32_Programmer_CLI.exe');
+                    GlobalEvent.log_warn('Not found STM32_Programmer_CLI.exe, skip generate STLink debug config');
+                } else {
+                    cubeProgramerPath = cubeProgramerExe.dir;
                 }
-                cubeProgramerPath = cubeProgramerExe.dir;
             } else {
                 const p = platform.find('STM32_Programmer_CLI');
                 if (p)
                     cubeProgramerPath = NodePath.dirname(p);
             }
-            const dbgCfg = newCortexDebugCfg(prj);
-            dbgCfg['name'] = 'Debug: STLink';
-            dbgCfg['servertype'] = 'stlink';
-            dbgCfg['interface'] = flasherCfg.proType == 'SWD' ? 'swd' : 'jtag';
-            dbgCfg['stlinkPath'] = gdbserverPath;
-            dbgCfg['stm32cubeprogrammer'] = cubeProgramerPath;
-            result.push(dbgCfg);
-            result.push(newAttachDebugCfg(dbgCfg));
+
+            // Only push config if tools are found, OR if we want to allow it to fail later.
+            // But better to skip pushing valid STLink config if tools missing, to avoid confusion.
+            // Crucially, DO NOT return [], just don't push to result.
+            if (gdbserverPath && cubeProgramerPath) {
+                dbgCfg['name'] = 'Debug: STLink';
+                dbgCfg['servertype'] = 'stlink';
+                dbgCfg['interface'] = flasherCfg.proType == 'SWD' ? 'swd' : 'jtag';
+                dbgCfg['stlinkPath'] = gdbserverPath;
+                dbgCfg['stm32cubeprogrammer'] = cubeProgramerPath;
+                result.push(dbgCfg);
+                result.push(newAttachDebugCfg(dbgCfg));
+            }
         }
 
         else if (flashertype == 'probe-rs') {
@@ -2238,6 +2352,39 @@ class ExternalDebugConfigProvider implements vscode.DebugConfigurationProvider {
                 .replace('{0}', supported.join(','))
                 .replace('{1}', flashertype);
             GlobalEvent.show_msgbox('Warning', msg);
+        }
+
+        // Auto generate 'eide-debug' config
+        if (!result.some(cfg => cfg.type === 'eide-debug')) {
+            const device = prj.GetPackManager().getCurrentDevInfo();
+
+            let speed: number | undefined;
+            let protocol: 'Swd' | 'Jtag' | undefined;
+
+            try {
+                // Try to extract speed/protocol from flasherOpts
+                // JLink
+                if ((<any>flasherOpts).proType !== undefined) {
+                    // STLink or JLink usually have proType
+                    const pType = String((<any>flasherOpts).proType).toLowerCase();
+                    if (pType.includes('jtag')) protocol = 'Jtag';
+                    else if (pType.includes('swd')) protocol = 'Swd';
+                }
+
+                if ((<any>flasherOpts).speed) {
+                    const spStr = String((<any>flasherOpts).speed);
+                    // Handle "4000", "4M", "4000kHz" etc. basic parsing
+                    // EIDE usually stores integer string for some, or "4000" for JLink
+                    const spInt = parseInt(spStr);
+                    if (!isNaN(spInt)) {
+                        speed = spInt;
+                    }
+                }
+            } catch (e) {
+                // ignore extraction errors
+            }
+
+            result.push(newEideDebugCfg(prj, (device && device.name) ? device.name : undefined, speed, protocol));
         }
 
         // filter by debugType

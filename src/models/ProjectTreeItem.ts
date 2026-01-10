@@ -286,8 +286,8 @@ export class ProjTreeItem extends vscode.TreeItem {
             const iconFile = ResManager.GetInstance().GetIconByName(iconName);
             if (iconFile !== undefined) {
                 this.iconPath = {
-                    light: iconFile.path,
-                    dark: iconFile.path
+                    light: vscode.Uri.file(iconFile.path),
+                    dark: vscode.Uri.file(iconFile.path)
                 };
             } else {
                 GlobalEvent.emit('msg', newMessage('Warning', 'Load Icon \'' + iconName + '\' Failed!'));

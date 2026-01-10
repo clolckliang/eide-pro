@@ -104,7 +104,6 @@ export class GlobalEvent {
         } else {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', ExceptionToMessage(msg, 'Warning'));
         }
-        console.warn(msg);
     }
     static log_error(msg: string | Error) {
         if (typeof msg == 'string') {
@@ -112,7 +111,6 @@ export class GlobalEvent {
         } else {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', ExceptionToMessage(msg, 'Error'));
         }
-        console.error(msg);
     }
     static log_show() {
         GlobalEvent.GetInstance()._emitter.emit('globalLog.show');

@@ -1056,6 +1056,10 @@
                 "title": "pyOCD (daplink,stlink...)"
             },
             {
+                "command": "_cl.eide.project.genDebugConfigTemplate.probe-rs",
+                "title": "probe-rs (ARM, RISC-V)"
+            },
+            {
                 "command": "_cl.eide.project.fetchShellFlasher",
                 "title": "%eide.flash.fetch-shell-flasher%",
                 "icon": {
@@ -1808,6 +1812,11 @@
                     "command": "_cl.eide.project.genDebugConfigTemplate.pyocd",
                     "when": "viewItem == SOLUTION && view == cl.eide.view.projects",
                     "group": "z_group0@2"
+                },
+                {
+                    "command": "_cl.eide.project.genDebugConfigTemplate.probe-rs",
+                    "when": "viewItem == SOLUTION && view == cl.eide.view.projects",
+                    "group": "z_group0@3"
                 }
             ]
         },
