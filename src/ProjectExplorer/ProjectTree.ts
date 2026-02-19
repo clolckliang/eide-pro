@@ -2902,7 +2902,7 @@ export class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem
 
             // try to clean build dir before generation
             try {
-                const platform = require('./Platform');
+                const platform = require('../Platform');
                 if (buildDir.IsDir()) platform.DeleteAllChildren(buildDir.path);
             } catch (error) {
                 // ignore
@@ -2917,7 +2917,7 @@ export class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem
                 if (ans === 'Yes') {
                     // clean
                     try {
-                        const platform = require('./Platform');
+                        const platform = require('../Platform');
                         const cacheFile = File.fromArray([buildDir.path, 'CMakeCache.txt']);
                         const cmakeFilesDir = File.fromArray([buildDir.path, 'CMakeFiles']);
                         if (cacheFile.IsFile()) fs.unlinkSync(cacheFile.path);
@@ -2959,7 +2959,7 @@ export class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem
                         }
 
                         if (selected) {
-                            const platform = require('./Platform');
+                            const platform = require('../Platform');
                             const fs = require('fs');
                             const path = require('path');
 
@@ -3571,7 +3571,7 @@ export class ProjectDataProvider implements vscode.TreeDataProvider<ProjTreeItem
                 } else {
                     const generatorString = setting.getCmakeGenerator();
                     if (generatorString.toLowerCase().includes('ninja')) { // check ninja
-                        const platform = require('./Platform');
+                        const platform = require('../Platform');
                         const ninjaPath = platform.find('ninja');
                         if (ninjaPath) {
                             // ignore, cmake can find it
