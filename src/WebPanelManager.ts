@@ -345,7 +345,7 @@ export class WebPanelManager {
         const fencoding = vscode.workspace.getConfiguration(undefined, uri).get<string>('files.encoding') || 'utf8';
         const inputFile = new File(uri.fsPath);
 
-        let fileContUtf8Buf = fs.readFileSync(inputFile.path);
+        let fileContUtf8Buf = fs.readFileSync(inputFile.path) as Buffer;
 
         if (fencoding != 'utf8') {
             fileContUtf8Buf = EncodingConverter.toUtf8Code(fileContUtf8Buf, fencoding);

@@ -40,7 +40,7 @@ export class EncodingConverter {
 
     static trimUtf8BomHeader(str: string | Buffer): string {
 
-        if (str instanceof Buffer) {
+        if (Buffer.isBuffer(str)) {
             if (str[0] == 0xef &&
                 str[1] == 0xbb &&
                 str[2] == 0xbf) {
