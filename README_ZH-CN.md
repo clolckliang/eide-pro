@@ -64,6 +64,25 @@
 2. **设置路径**：打开 **Operations** 栏，设置编译器的安装路径。
 3. **开始项目**：点击 `新建` 或 `导入`，开始你的嵌入式开发之旅。
 
+## 🛠️ 开发说明
+
+基本流程：
+
+1. `npm install`
+2. `npm run dev`（生成 `dist/extension.js`，用于调试）
+3. `npm run build`（生产构建）
+
+VS Code 调试配置会在启动前执行 `npm: webpack`，确保 `dist/extension.js` 存在。
+
+## 🔒 私有模块（可选）
+
+`src/Private` 目录用于可替换的私有实现：
+
+* `TelemetryTask.ts` — 遥测钩子（默认是空实现）
+* `GithubProxy.ts` — GitHub 代理请求头注入（默认是空实现）
+
+如需私有实现，直接在 `src/Private` 中放置同名文件并保持导出一致即可。
+
 ## 🌈 社区支持
 
 这是一个为了增强功能而维护的分支版本。

@@ -64,6 +64,25 @@ A powerful MCU development environment for `8051/STM8/Cortex-M/MIPS/RISC-V` on V
 2. **Setup**: Open the **Operations** bar to set the compiler path.
 3. **Start**: Click `New` or `Import` to begin your embedded journey.
 
+## 🛠️ Development
+
+Basic workflows:
+
+1. `npm install`
+2. `npm run dev` (builds `dist/extension.js` for debugging)
+3. `npm run build` (production bundle)
+
+The VS Code launch configuration runs `npm: webpack` before debugging to ensure `dist/extension.js` exists.
+
+## 🔒 Private Modules (Optional)
+
+The `src/Private` folder contains optional, replaceable implementations:
+
+* `TelemetryTask.ts` — telemetry hook (default is a no-op stub)
+* `GithubProxy.ts` — optional header injection for GitHub proxy (default is a no-op stub)
+
+If you have private implementations, drop them in `src/Private` and keep the same exports.
+
 ## 🌈 Community & Support
 
 This is a fork maintained for enhanced features.
