@@ -1,4 +1,4 @@
-import { ExportResult, ProjectExporter } from '../../core/export/ExportManager';
+import { createExportStatus, ExportResult, ProjectExporter } from '../../core/export/ExportManager';
 import {
     MigrationDiagnostic,
     NormalizedProjectModel,
@@ -45,7 +45,7 @@ export class AgentContextExporter implements ProjectExporter {
 
         return {
             exporterId: this.id,
-            status: diagnostics.some((diagnostic) => diagnostic.level === 'error') ? 'failed' : toExportStatus(diagnostics),
+            status: createExportStatus(diagnostics),
             outputRoot,
             generatedFiles: ['agent-context.json', 'README.md'],
             artifacts: [
@@ -162,8 +162,4 @@ function createDiagnostics(model: NormalizedProjectModel): readonly MigrationDia
     }
 
     return diagnostics;
-}
-
-function toExportStatus(diagnostics: readonly MigrationDiagnostic[]): 'success' | 'partial' {
-    return diagnostics.length === 0 ? 'success' : 'partial';
 }

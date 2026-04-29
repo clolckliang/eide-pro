@@ -22,6 +22,14 @@ export interface ProjectExporter {
     exportProject(model: NormalizedProjectModel, outputRoot: string): Promise<ExportResult>;
 }
 
+export function createExportStatus(diagnostics: readonly MigrationDiagnostic[]): ExportStatus {
+    if (diagnostics.some((diagnostic) => diagnostic.level === 'error')) {
+        return 'failed';
+    }
+
+    return diagnostics.length === 0 ? 'success' : 'partial';
+}
+
 export class ExportManager {
     private readonly exporters = new Map<string, ProjectExporter>();
 

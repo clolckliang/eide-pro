@@ -1,4 +1,4 @@
-import { ExportResult, ProjectExporter } from '../../core/export/ExportManager';
+import { createExportStatus, ExportResult, ProjectExporter } from '../../core/export/ExportManager';
 import {
     MigrationDiagnostic,
     NormalizedProjectModel,
@@ -17,7 +17,7 @@ export class MakefileExporter implements ProjectExporter {
 
         return {
             exporterId: this.id,
-            status: diagnostics.some((diagnostic) => diagnostic.level === 'error') ? 'failed' : toExportStatus(diagnostics),
+            status: createExportStatus(diagnostics),
             outputRoot,
             generatedFiles: ['Makefile'],
             artifacts: [
@@ -152,10 +152,6 @@ function requiresManualToolchainReview(toolchainFamily: NormalizedToolchainFamil
         toolchainFamily === 'sdcc' ||
         toolchainFamily === 'cosmic' ||
         toolchainFamily === 'llvm';
-}
-
-function toExportStatus(diagnostics: readonly MigrationDiagnostic[]): 'success' | 'partial' {
-    return diagnostics.length === 0 ? 'success' : 'partial';
 }
 
 function toLibraryFlag(library: string): string {
