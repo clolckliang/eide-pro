@@ -2,11 +2,17 @@ import { NormalizedProjectModel, MigrationDiagnostic } from '../project/Normaliz
 
 export type ExportStatus = 'success' | 'partial' | 'failed';
 
+export interface ExportArtifact {
+    readonly path: string;
+    readonly content: string;
+}
+
 export interface ExportResult {
     readonly exporterId: string;
     readonly status: ExportStatus;
     readonly outputRoot?: string;
     readonly generatedFiles: readonly string[];
+    readonly artifacts?: readonly ExportArtifact[];
     readonly diagnostics: readonly MigrationDiagnostic[];
 }
 
