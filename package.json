@@ -73,6 +73,7 @@
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
         "test": "mocha",
+        "test:unit": "mocha --no-config -r ts-node/register \"src/test/unit/**/*.test.ts\"",
         "test:watch": "mocha --watch",
         "lint": "eslint src --ext ts"
     },
