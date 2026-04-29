@@ -19,9 +19,15 @@ describe('DefaultProjectAgentToolRegistry', () => {
 
         assert.deepEqual(tools.map((tool) => tool.name), [
             'project.get_context',
-            'export.preview'
+            'export.preview',
+            'debug.list_backends',
+            'debug.preview_launch_config',
+            'debug.validate_environment'
         ]);
         assert.deepEqual(tools.map((tool) => tool.permissionLevel), [
+            'readonly',
+            'readonly',
+            'readonly',
             'readonly',
             'readonly'
         ]);
