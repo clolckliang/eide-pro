@@ -9,15 +9,18 @@
 		"sourceMap": true,
 		//"rootDir": "./",
 		"strict": true, /* enable all strict type-checking options */
-		"useUnknownInCatchVariables": false,
-		"skipLibCheck": true /* skip type checking of declaration files */
+		"useUnknownInCatchVariables": true,
+		"skipLibCheck": true, /* skip type checking of declaration files */
 		/* Additional Checks */
-		// "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
-		// "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
-		// "noUnusedParameters": true,  /* Report errors on unused parameters. */
+		"noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
+		"noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
+		"noUnusedLocals": true,  /* Report errors on unused locals. */
+		"noUnusedParameters": true  /* Report errors on unused parameters. */
 	},
 	"exclude": [
 		"node_modules",
-		".vscode-test"
+		".vscode-test",
+		"probe-rs-vscode-ref",
+		"eide-debug"
 	]
 }

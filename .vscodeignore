@@ -44,3 +44,7 @@ test
 
 # shell script
 *.sh
+
+# Separate extension and reference code
+eide-debug/
+probe-rs-vscode-ref/

@@ -37,5 +37,3 @@ dotnet-runtime*.exe
 # shell script
 /*.sh
 
-# test
-test

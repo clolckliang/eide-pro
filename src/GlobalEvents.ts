@@ -94,26 +94,41 @@ export class GlobalEvent {
             return GlobalEvent.GetInstance()._emitter.emit('msg', newMessage(type, msg));
     }
 
-    //log
+    /**
+     * Log an informational message to the global output channel
+     * @param msg The message to log
+     */
     static log_info(msg: string) {
         GlobalEvent.GetInstance()._emitter.emit('globalLog', newMessage('Info', msg));
     }
+
+    /**
+     * Log a warning message to the global output channel
+     * @param msg The warning message (string or Error object)
+     */
     static log_warn(msg: string | Error) {
         if (typeof msg == 'string') {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', newMessage('Warning', msg));
         } else {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', ExceptionToMessage(msg, 'Warning'));
         }
-        console.warn(msg);
     }
+
+    /**
+     * Log an error message to the global output channel
+     * @param msg The error message (string or Error object)
+     */
     static log_error(msg: string | Error) {
         if (typeof msg == 'string') {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', newMessage('Error', msg));
         } else {
             GlobalEvent.GetInstance()._emitter.emit('globalLog', ExceptionToMessage(msg, 'Error'));
         }
-        console.error(msg);
     }
+
+    /**
+     * Show the global output channel to the user
+     */
     static log_show() {
         GlobalEvent.GetInstance()._emitter.emit('globalLog.show');
     }

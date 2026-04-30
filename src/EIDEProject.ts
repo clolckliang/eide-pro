@@ -52,12 +52,13 @@ import { ToolchainName, IToolchian, ToolchainManager } from './ToolchainManager'
 import { GlobalEvent } from './GlobalEvents';
 import { ArrayDelRepetition } from '../lib/node-utility/Utility';
 import { ExceptionToMessage, newMessage } from './Message';
+import { toError } from './utils/ErrorHandler';
 import { PackageManager, ComponentUpdateItem, ComponentUpdateType } from './PackageManager';
 import { HexUploaderType } from './HexUploader';
 import { WebPanelManager } from './WebPanelManager';
 import { DependenceManager } from './DependenceManager';
 import * as platform from './Platform';
-import { md5, copyObject, compareVersion, isGccFamilyToolchain, deepCloneObject, notifyReloadWindow, copyAndMakeObjectKeysToLowerCase, runShellCommand, execInternalCommand } from './utility';
+import { md5, copyObject, compareVersion, isGccFamilyToolchain, getGccSystemSearchList, deepCloneObject, notifyReloadWindow, copyAndMakeObjectKeysToLowerCase, runShellCommand, execInternalCommand } from './utility';
 import { ResInstaller } from './ResInstaller';
 import {
     view_str$prompt$filesOptionsComment,
@@ -767,7 +768,7 @@ class SourceRootList implements SourceProvider {
 
         } catch (error) {
             rootFolderInfo.needUpdate = true; // set need update flag
-            GlobalEvent.log_warn(error);
+            GlobalEvent.log_warn(toError(error));
         }
     }
 }
@@ -3991,6 +3992,8 @@ class EIDEProject extends AbstractProject {
 
     private doUpdateCpptoolsConfig() {
 
+        GlobalEvent.log_info(`[cpptools] Updating IntelliSense configuration for project: ${this.getUid()}`);
+
         const builderOpts = this.getBuilderOptions();
         const toolchain = this.getToolchain();
         const prjConfig = this.GetConfiguration();
@@ -4145,6 +4148,26 @@ class EIDEProject extends AbstractProject {
         SettingManager.GetInstance().getForceIncludeList().forEach((path) => {
             this.cppToolsConfig.forcedInclude?.push(this.ToAbsolutePath(path));
         });
+
+        // detect system search list for gcc family toolchains
+        // because cpptools sometimes fails to detect them for cross-compilers
+        const gccPath = this.cppToolsConfig.compilerPath;
+        if (gccPath && gccPath != "" && isGccFamilyToolchain(toolchain.name)) {
+            const sysHeaders = getGccSystemSearchList(File.ToLocalPath(gccPath), ['-xc++'].concat(this.cppToolsConfig.cppCompilerArgs || []));
+            if (sysHeaders && sysHeaders.length > 0) {
+                GlobalEvent.log_info(`[cpptools] Adding ${sysHeaders.length} system include paths detected from compiler.`);
+                sysHeaders.forEach((p: string) => {
+                    const unixPath = File.ToUnixPath(File.normalize(p));
+                    if (!this.cppToolsConfig.includePath.includes(unixPath)) {
+                        this.cppToolsConfig.includePath.push(unixPath);
+                    }
+                });
+                // Deduplicate again
+                this.cppToolsConfig.includePath = ArrayDelRepetition(this.cppToolsConfig.includePath);
+            }
+        }
+
+        GlobalEvent.log_info(`[cpptools] Includes: ${this.cppToolsConfig.includePath.length}, Defines: ${this.cppToolsConfig.defines.length}, Compiler: ${this.cppToolsConfig.compilerPath || 'None'}`);
 
         // notify config changed
         this.emit('cppConfigChanged');
